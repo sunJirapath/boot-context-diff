@@ -2,6 +2,7 @@ package io.github.sunjirapath.bootcontextdiff;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -65,7 +66,14 @@ public final class ContextContract {
 	private static ContextSnapshot read(Path baseline) {
 		ContextSnapshot snapshot;
 		try {
-			String json = Files.readString(baseline, StandardCharsets.UTF_8);
+			byte[] bytes = Files.readAllBytes(baseline);
+			if (bytes.length > 1 && ((bytes[0] == (byte) 0xFF && bytes[1] == (byte) 0xFE)
+					|| (bytes[0] == (byte) 0xFE && bytes[1] == (byte) 0xFF))) {
+				// PowerShell 5 `>` writes UTF-16LE with a BOM
+				throw new IllegalStateException("Baseline " + baseline + " is UTF-16; re-save it as UTF-8");
+			}
+			// strict decode: invalid UTF-8 must fail here, not become U+FFFD and a confusing diff
+			String json = StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString();
 			// Windows editors (Notepad, PowerShell redirects) prepend a BOM that Jackson rejects
 			snapshot = MAPPER.readValue(json.startsWith("﻿") ? json.substring(1) : json, ContextSnapshot.class);
 		}

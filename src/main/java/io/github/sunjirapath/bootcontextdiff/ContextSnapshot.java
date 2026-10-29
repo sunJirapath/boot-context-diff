@@ -47,15 +47,24 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 		// shortcut: parent-context reports are ignored, snapshot each context separately
 		if (report != null) {
 			report.getConditionAndOutcomesBySource().forEach((source, outcomes) -> {
-				Map<String, Boolean> byType = new TreeMap<>();
+				// sources that normalise to the same name (per-run $$ suffixes) must merge, not overwrite
+				Map<String, Boolean> byType = conditions.computeIfAbsent(stable(source), (key) -> new TreeMap<>());
 				// only booleans: outcome messages can echo property values
-				outcomes.forEach((entry) -> byType.merge(
-						ClassUtils.getUserClass(entry.getCondition()).getSimpleName(),
+				outcomes.forEach((entry) -> byType.merge(conditionName(entry.getCondition()),
 						entry.getOutcome().isMatch(), Boolean::logicalAnd));
-				conditions.put(stable(source), byType);
 			});
 		}
 		return new ContextSnapshot(SCHEMA_VERSION, beans, conditions);
+	}
+
+	// Lambda conditions are named Owner$$Lambda/0x<address> and anonymous ones have no simple name.
+	private static String conditionName(Object condition) {
+		Class<?> type = ClassUtils.getUserClass(condition);
+		String name = type.getSimpleName();
+		if (name.isEmpty()) {
+			name = ClassUtils.getShortName(type);
+		}
+		return stable(name);
 	}
 
 	// Declared type first: runtime classes of proxied beans carry per-run counters ($Proxy45, $$SpringCGLIB$$0).

@@ -1,9 +1,11 @@
 package io.github.sunjirapath.bootcontextdiff;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedList;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -13,10 +15,16 @@ import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.beans.factory.support.BeanDefinitionRegistry;
 import org.springframework.beans.factory.support.GenericBeanDefinition;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.autoconfigure.condition.ConditionEvaluationReport;
+import org.springframework.boot.autoconfigure.condition.ConditionOutcome;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Condition;
+import org.springframework.context.annotation.ConditionContext;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.core.type.AnnotatedTypeMetadata;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -195,6 +203,59 @@ class ContextContractTests {
 		finally {
 			Files.deleteIfExists(relative);
 		}
+	}
+
+	@Test
+	void lambdaConditionKeyHasNoPerRunAddress() {
+		Condition lambda = (context, metadata) -> true;
+		runner.run((ctx) -> {
+			record(ctx, "lambda.Source", lambda, ConditionOutcome.match());
+			assertThat(ContextSnapshot.of(ctx).conditions().get("lambda.Source")).containsOnlyKeys("ContextContractTests");
+		});
+	}
+
+	@Test
+	void anonymousConditionKeyIsNotEmpty() {
+		Condition anonymous = new Condition() {
+			@Override
+			public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
+				return true;
+			}
+		};
+		runner.run((ctx) -> {
+			record(ctx, "anonymous.Source", anonymous, ConditionOutcome.match());
+			assertThat(ContextSnapshot.of(ctx).conditions().get("anonymous.Source").keySet()).singleElement()
+				.satisfies((name) -> assertThat(name).isNotEmpty().doesNotContain("0x"));
+		});
+	}
+
+	@Test
+	void sourcesThatNormaliseToTheSameNameAreMerged() {
+		Condition condition = (context, metadata) -> true;
+		// the earlier source does not match: last-write-wins would report the later, matching one
+		runner.run((ctx) -> {
+			record(ctx, "Twin$$SpringCGLIB$$0", condition, ConditionOutcome.noMatch("x"));
+			record(ctx, "Twin$$SpringCGLIB$$1", condition, ConditionOutcome.match());
+			assertThat(ContextSnapshot.of(ctx).conditions().get("Twin").values()).containsExactly(false);
+		});
+	}
+
+	@Test
+	void utf16BaselineGetsAClearMessage() {
+		Path baseline = dir.resolve("baseline.json");
+		runner.run((ctx) -> {
+			ContextContract.write(ctx, baseline);
+			// what PowerShell 5 `>` produces: UTF-16LE with a BOM
+			Files.writeString(baseline, "﻿" + Files.readString(baseline), StandardCharsets.UTF_16LE);
+			assertThatThrownBy(() -> ContextContract.verify(ctx, baseline))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("UTF-16");
+		});
+	}
+
+	private static void record(ConfigurableApplicationContext ctx, String source, Condition condition,
+			ConditionOutcome outcome) {
+		ConditionEvaluationReport.get(ctx.getBeanFactory()).recordConditionEvaluation(source, condition, outcome);
 	}
 
 	@Configuration
