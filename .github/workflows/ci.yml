@@ -1,0 +1,32 @@
+name: ci
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Library (installs to ~/.m2 for the examples)
+        run: ./mvnw -B clean install
+      - name: Maven example
+        run: ./mvnw -B -f examples/maven/pom.xml clean verify
+      - name: Gradle Groovy example
+        working-directory: examples/gradle-groovy
+        run: ./gradlew clean test
+      - name: Gradle Kotlin example
+        working-directory: examples/gradle-kotlin
+        run: ./gradlew clean test
+      - name: Baseline untouched by the example runs
+        run: git diff --exit-code examples/shared/context-baseline.json

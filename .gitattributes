@@ -1,0 +1,5 @@
+# The baseline is compared byte for byte and the wrappers are shell scripts: never CRLF.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.jar binary

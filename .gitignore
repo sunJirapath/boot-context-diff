@@ -1,0 +1,7 @@
+target/
+build/
+.gradle/
+.kotlin/
+.claude/
+.idea/
+*.iml
