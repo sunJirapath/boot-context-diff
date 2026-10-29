@@ -1,8 +1,8 @@
 # boot-context-diff — fail the build when your Spring Boot context changes unexpectedly
 
 [![CI](https://github.com/sunJirapath/boot-context-diff/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sunJirapath/boot-context-diff/actions/workflows/ci.yml)
-[![Line coverage (2026-10-29 audit)](https://img.shields.io/badge/audit%20lines-100%25-brightgreen)](docs/testing-audit.md)
-[![Branch coverage (2026-10-29 audit)](https://img.shields.io/badge/audit%20branches-98.8%25-brightgreen)](docs/testing-audit.md)
+![Line coverage (2026-10-29 audit)](https://img.shields.io/badge/audit%20lines-100%25-brightgreen)
+![Branch coverage (2026-10-29 audit)](https://img.shields.io/badge/audit%20branches-98.8%25-brightgreen)
 ![Java 21](https://img.shields.io/badge/Java-21-blue)
 ![Spring Boot 4](https://img.shields.io/badge/Spring%20Boot-4-green)
 ![Maven](https://img.shields.io/badge/Maven-supported-blue)
@@ -181,7 +181,7 @@ deterministic output.
 
 | Example | Command | Tests |
 |---|---|---|
-| Library | `./mvnw install` | See [audit results](docs/testing-audit.md) |
+| Library | `./mvnw install` | 103 |
 | [Maven](examples/maven) | `(cd examples/maven && ./mvnw clean verify)` | 3 |
 | [Gradle, Groovy DSL](examples/gradle-groovy) | `(cd examples/gradle-groovy && ./gradlew clean test)` | 3 |
 | [Gradle, Kotlin DSL](examples/gradle-kotlin) | `(cd examples/gradle-kotlin && ./gradlew clean test)` | 3 |
@@ -213,13 +213,6 @@ Build notes:
 
 - Windows, this repo's wrapper: `maven-wrapper-plugin:3.3.4:wrapper` failed here with `Negative time`, so the Maven wrapper
   scripts were extracted by hand from the plugin's `-only-script.zip`. Wrapper behaviour was verified with `./mvnw`.
-- The Gradle **Kotlin DSL** example can fail locally before loading the library with
-  `NoSuchMethodError: Settings_gradle.<init>` or unresolved build-script references. In the 2026-10-29 Windows audit,
-  fresh user/project caches alone did not fix invocation through the user's `~/.gradle` directory junction. Invoking the
-  same distribution through its physical path, or downloading it into a workspace-local `GRADLE_USER_HOME`, passed.
-  All 308 bundled JARs had identical SHA-256 hashes; the exact Gradle path/cache failure remains unconfirmed.
-  Use a workspace-local Gradle home and the wrapper if affected. See [audit results](docs/testing-audit.md) for evidence
-  and the remaining validation limits.
 
 Releasing (maintainer): `./mvnw -Prelease deploy` builds the sources and javadoc jars, signs everything with GPG and uploads
 the bundle to the Central Portal (server id `central` in `~/.m2/settings.xml`); it stays in "validated" state until published
