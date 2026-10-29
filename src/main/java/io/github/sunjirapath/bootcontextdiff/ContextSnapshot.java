@@ -10,6 +10,7 @@ import java.util.TreeSet;
 import java.util.regex.Pattern;
 
 import org.springframework.beans.BeansException;
+import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionEvaluationReport;
@@ -29,7 +30,8 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 
 	static final int SCHEMA_VERSION = 1;
 
-	private static final Pattern GENERATED_SUFFIX = Pattern.compile("\\$\\$.*?(?=#|$)");
+	private static final Pattern GENERATED_SUFFIX = Pattern
+		.compile("\\$\\$(?:SpringCGLIB\\$\\$|EnhancerBy(?:Spring)?CGLIB\\$\\$|Lambda(?:\\$|/)).*");
 
 	/** Reads the context without instantiating any bean. */
 	public static ContextSnapshot of(ConfigurableApplicationContext context) {
@@ -43,9 +45,10 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 			}
 		}
 		Map<String, Map<String, Boolean>> conditions = new TreeMap<>();
-		ConditionEvaluationReport report = ConditionEvaluationReport.find(factory);
+		// find() creates a report and may instantiate a parent bean; read only the local singleton.
+		Object singleton = factory.getSingleton("autoConfigurationReport");
 		// shortcut: parent-context reports are ignored, snapshot each context separately
-		if (report != null) {
+		if (singleton instanceof ConditionEvaluationReport report) {
 			report.getConditionAndOutcomesBySource().forEach((source, outcomes) -> {
 				// sources that normalise to the same name (per-run $$ suffixes) must merge, not overwrite
 				Map<String, Boolean> byType = conditions.computeIfAbsent(stable(source), (key) -> new TreeMap<>());
@@ -59,7 +62,13 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 
 	// Lambda conditions are named Owner$$Lambda/0x<address> and anonymous ones have no simple name.
 	private static String conditionName(Object condition) {
-		Class<?> type = ClassUtils.getUserClass(condition);
+		Class<?> type = condition.getClass();
+		if (!type.isSynthetic() && GENERATED_SUFFIX.matcher(type.getName()).find()) {
+			type = ClassUtils.getUserClass(type);
+		}
+		if (Proxy.isProxyClass(type)) {
+			return "proxy" + Arrays.stream(type.getInterfaces()).map(Class::getName).sorted().toList();
+		}
 		String name = type.getSimpleName();
 		if (name.isEmpty()) {
 			name = ClassUtils.getShortName(type);
@@ -71,12 +80,15 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 	private static String typeName(ConfigurableListableBeanFactory factory, String name) {
 		Class<?> type;
 		try {
-			type = factory.getMergedBeanDefinition(name).getResolvableType().resolve();
-			if (type == null) {
+			BeanDefinition definition = factory.getMergedBeanDefinition(name);
+			type = definition.getResolvableType().resolve();
+			// A FactoryBean exposes its product; an unresolved static factory exposes its method's return type.
+			if (type == null || FactoryBean.class.isAssignableFrom(type)
+					|| (definition.getFactoryMethodName() != null && type.getName().equals(definition.getBeanClassName()))) {
 				type = factory.getType(name, false);
 			}
 		}
-		catch (BeansException ex) {
+		catch (BeansException | TypeNotPresentException | LinkageError ex) {
 			// a definition whose class cannot be loaded must not make the whole snapshot fail
 			type = null;
 		}
@@ -86,11 +98,13 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 		if (Proxy.isProxyClass(type)) {
 			return "proxy" + Arrays.stream(type.getInterfaces()).map(Class::getName).sorted().toList();
 		}
-		return stable(ClassUtils.getUserClass(type).getName());
+		return stable(type.getName());
 	}
 
 	private static String stable(String name) {
-		return GENERATED_SUFFIX.matcher(name).replaceAll("");
+		int method = name.indexOf('#');
+		return method < 0 ? GENERATED_SUFFIX.matcher(name).replaceAll("")
+				: GENERATED_SUFFIX.matcher(name.substring(0, method)).replaceAll("") + name.substring(method);
 	}
 
 	/** Human-readable differences from this baseline to {@code actual}; empty when equal. */
