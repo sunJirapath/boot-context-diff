@@ -106,8 +106,9 @@ failure was followed by a successful clean host run; it was not classified as a 
 
 ## Remaining boundaries
 
-- Validation in this audit ran locally on Windows. The existing Java 21 Linux/macOS/Windows CI workflow will discover
-  the new tests. The local results above were collected before opening the PR; remote CI results are separate.
+- Validation in this audit ran locally on Windows. The Java 21 Linux/Windows CI workflow discovers the new tests.
+  The local results above were collected before opening the PR; remote CI results are separate. macOS is outside the
+  CI matrix; its initial PR jobs were cancelled before executing any steps because hosted runners were unavailable.
 - Boot 4.0.9 was exercised. Other Boot patches, Boot 3.5, all JDKs, custom bean factories, and arbitrary third-party
   post-processors are not an exhaustive compatibility matrix. Java 26 adds runtime evidence, not a broader support claim.
 - Schema 1 intentionally stores raw type names and merges equal simple condition names per source with logical AND.

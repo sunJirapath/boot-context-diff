@@ -116,7 +116,7 @@ Abridged from [`examples/shared/context-baseline.json`](examples/shared/context-
 ### Compatibility
 
 - Java 21, Spring Boot 4.0.x (built and tested against 4.0.9), Spring Framework 7. Uses Jackson 3 (`tools.jackson`).
-- Maven, Gradle Groovy DSL and Gradle Kotlin DSL each have a runnable example, built in CI on Linux, macOS and Windows.
+- Maven, Gradle Groovy DSL and Gradle Kotlin DSL each have a runnable example, built in CI on Linux and Windows.
 - **Spring Boot 3.5 is not verified and not claimed.** The baseline format (`schemaVersion: 1`) does not mention Boot or
   Framework versions, so a baseline is just data. To compare against a 3.5 application, either generate the baseline
   by running this library against a 3.5 context (untested: the library is compiled against Boot 4), or write the JSON by hand
@@ -206,7 +206,7 @@ baseline with `UPDATE_CONTEXT_BASELINE=true ./mvnw test` in any one example.
 ### Build and contribute
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (workflow `ci`, on push and pull request) builds the library and all
-three examples on Linux, macOS and Windows (JDK 21 Temurin) and then fails if the shared baseline file changed
+three examples on Linux and Windows (JDK 21 Temurin) and then fails if the shared baseline file changed
 (`git diff --exit-code`). Run the same steps locally with the commands in [Runnable examples](#runnable-examples).
 
 Build notes:
