@@ -176,7 +176,7 @@ deterministic output.
 
 | Example | Command | Tests |
 |---|---|---|
-| Library | `./mvnw install` | 15 |
+| Library | `./mvnw install` | 27 |
 | [Maven](examples/maven) | `(cd examples/maven && ./mvnw clean verify)` | 3 |
 | [Gradle, Groovy DSL](examples/gradle-groovy) | `(cd examples/gradle-groovy && ./gradlew clean test)` | 3 |
 | [Gradle, Kotlin DSL](examples/gradle-kotlin) | `(cd examples/gradle-kotlin && ./gradlew clean test)` | 3 |

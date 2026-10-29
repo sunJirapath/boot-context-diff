@@ -49,6 +49,9 @@ public final class ContextContract {
 	 * @throws AssertionError if the baseline is missing or differs; the baseline is left untouched
 	 */
 	public static void verify(ConfigurableApplicationContext context, Path baseline) {
+		if (Files.isDirectory(baseline)) {
+			throw new AssertionError("Baseline path " + baseline.toAbsolutePath() + " is a directory, not a file");
+		}
 		if (!Files.isRegularFile(baseline)) {
 			throw new AssertionError("No context baseline at " + baseline.toAbsolutePath()
 					+ ". Generate it deliberately with ContextContract.write(context, path) and commit it.");
@@ -93,6 +96,10 @@ public final class ContextContract {
 		}
 		if (snapshot.beans() == null || snapshot.conditions() == null) {
 			throw new IllegalStateException("Baseline " + baseline + " lacks its \"beans\" or \"conditions\" section");
+		}
+		if (snapshot.beans().containsValue(null) || snapshot.conditions().values()
+			.stream().anyMatch((outcomes) -> outcomes == null || outcomes.containsValue(null))) {
+			throw new IllegalStateException("Baseline " + baseline + " contains a null entry");
 		}
 		return snapshot;
 	}
