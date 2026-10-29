@@ -132,9 +132,11 @@ Regenerate the shared baseline: `UPDATE_CONTEXT_BASELINE=true ./mvnw test` in an
 - Windows, this repo's wrapper: `maven-wrapper-plugin:3.3.4:wrapper` failed here with `Negative time`, so the Maven wrapper
   scripts were extracted by hand from the plugin's `-only-script.zip`. Wrapper behaviour was verified with `./mvnw`.
 - The Gradle **Kotlin DSL** example failed in the author's environment with `NoSuchMethodError: Settings_gradle.<init>`
-  (even for a one-line script) when run against the existing `~/.gradle` user home. With a fresh, empty `GRADLE_USER_HOME`
-  it passes with a plain `./gradlew clean test` on a JDK 21 launcher. Bisecting the old home narrowed it to its compiled
-  Kotlin-script cache: a fresh home plus a copy of only `caches/9.3.1/kotlin-dsl/scripts` reproduces the error, while copies of
-  `caches/jars-9` or `caches/9.3.1/kotlin-dsl/accessors` do not. So it is a stale cache entry in that Gradle home, not the library or the
-  example (why that entry went stale was not investigated). If you hit this, delete `~/.gradle/caches/<version>/kotlin-dsl/scripts`
-  or retry with `GRADLE_USER_HOME=<empty dir> ./gradlew clean test`.
+  (even for a one-line script) against the existing `~/.gradle` user home, but passed with a fresh `GRADLE_USER_HOME`.
+  Bisecting showed the compiled Kotlin-script cache `caches/<version>/kotlin-dsl/scripts` carried a bad class (a fresh home plus a
+  copy of only that directory reproduces the error; `jars-*`, `transforms`, `fileContent`/`fileHashes`, `dependencies-accessors`
+  and `kotlin-dsl/accessors` do not). Renaming that directory was not enough while a long-running Gradle daemon was alive:
+  it recompiled the same bad class. After `gradlew --stop` and moving the directory aside, the example passed on the default
+  home, twice in a row. So the cause is a poisoned script cache written by a stale daemon, not the library or the example;
+  what first made that daemon produce the bad class is not known. If you hit this: `./gradlew --stop`, move
+  `~/.gradle/caches/<version>/kotlin-dsl/scripts` aside, rerun; or use `GRADLE_USER_HOME=<empty dir> ./gradlew clean test`.
