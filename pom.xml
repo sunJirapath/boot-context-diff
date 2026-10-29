@@ -6,15 +6,36 @@
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>4.0.8</version>
+    <version>4.0.9</version>
     <relativePath/>
   </parent>
 
   <groupId>io.github.sunjirapath.bootcontextdiff</groupId>
   <artifactId>boot-context-diff</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>0.1.0</version>
   <name>boot-context-diff</name>
   <description>Detect unexpected Spring Boot ApplicationContext changes across builds and upgrades</description>
+  <url>https://github.com/sunJirapath/boot-context-diff</url>
+
+  <licenses>
+    <license>
+      <name>MIT License</name>
+      <url>https://opensource.org/licenses/MIT</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <name>Sun</name>
+      <email>sun.jrp@gmail.com</email>
+      <url>https://github.com/sunJirapath</url>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:https://github.com/sunJirapath/boot-context-diff.git</connection>
+    <developerConnection>scm:git:git@github.com:sunJirapath/boot-context-diff.git</developerConnection>
+    <url>https://github.com/sunJirapath/boot-context-diff</url>
+  </scm>
 
   <properties>
     <java.version>21</java.version>
@@ -37,4 +58,62 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
+
+  <!-- ./mvnw -Prelease deploy: needs a GPG key and Central Portal credentials (server id "central") -->
+  <profiles>
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>attach-sources</id>
+                <goals>
+                  <goal>jar-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>attach-javadocs</id>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <version>0.12.0</version>
+            <extensions>true</extensions>
+            <configuration>
+              <publishingServerId>central</publishingServerId>
+              <autoPublish>false</autoPublish>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

@@ -110,7 +110,7 @@ Abridged from [`examples/shared/context-baseline.json`](examples/shared/context-
 
 ### Compatibility
 
-- Java 21, Spring Boot 4.0.x (built and tested against 4.0.8), Spring Framework 7. Uses Jackson 3 (`tools.jackson`).
+- Java 21, Spring Boot 4.0.x (built and tested against 4.0.9), Spring Framework 7. Uses Jackson 3 (`tools.jackson`).
 - Maven, Gradle Groovy DSL and Gradle Kotlin DSL each have a runnable example, built in CI on Linux, macOS and Windows.
 - **Spring Boot 3.5 is not verified and not claimed.** The baseline format (`schemaVersion: 1`) does not mention Boot or
   Framework versions, so a baseline is just data. To compare against a 3.5 application, either generate the baseline
@@ -132,13 +132,13 @@ Maven (test scope):
 <dependency>
   <groupId>io.github.sunjirapath.bootcontextdiff</groupId>
   <artifactId>boot-context-diff</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>0.1.0</version>
   <scope>test</scope>
 </dependency>
 ```
 
-Gradle (Groovy DSL `testImplementation 'io.github.sunjirapath.bootcontextdiff:boot-context-diff:0.1.0-SNAPSHOT'`, Kotlin DSL
-`testImplementation("io.github.sunjirapath.bootcontextdiff:boot-context-diff:0.1.0-SNAPSHOT")`; add `mavenLocal()` to repositories).
+Gradle (Groovy DSL `testImplementation 'io.github.sunjirapath.bootcontextdiff:boot-context-diff:0.1.0'`, Kotlin DSL
+`testImplementation("io.github.sunjirapath.bootcontextdiff:boot-context-diff:0.1.0")`; add `mavenLocal()` to repositories).
 
 ### Updating the baseline
 
@@ -214,6 +214,14 @@ Build notes:
   what first made that daemon produce the bad class is not known. If you hit this: `./gradlew --stop`, move
   `~/.gradle/caches/<version>/kotlin-dsl/scripts` aside, rerun; or use `GRADLE_USER_HOME=<empty dir> ./gradlew clean test`.
 
+Releasing (maintainer): `./mvnw -Prelease deploy` builds the sources and javadoc jars, signs everything with GPG and uploads
+the bundle to the Central Portal (server id `central` in `~/.m2/settings.xml`); it stays in "validated" state until published
+by hand in the portal.
+
+### License
+
+[MIT](LICENSE)
+
 ## ภาษาไทย
 
 > **ความต่างไม่ได้แปลว่าเป็นบั๊กเสมอไป** การอัปเกรด dependency หรือการแก้ config ทำให้ context เปลี่ยนได้อย่างถูกต้อง
@@ -253,7 +261,7 @@ auto-configuration เปลี่ยนโดยไม่มีอะไรล�
 
 ### ความเข้ากันได้
 
-- Java 21, Spring Boot 4.0.x (build และทดสอบกับ 4.0.8), Spring Framework 7 และ Jackson 3 (`tools.jackson`)
+- Java 21, Spring Boot 4.0.x (build และทดสอบกับ 4.0.9), Spring Framework 7 และ Jackson 3 (`tools.jackson`)
 - **ยังไม่ได้ตรวจสอบและไม่ได้รับรองว่ารองรับ Spring Boot 3.5** รายละเอียดอยู่ในหัวข้อ Compatibility ด้านบน
 
 ### ตัวอย่างที่รันได้
@@ -268,3 +276,7 @@ auto-configuration เปลี่ยนโดยไม่มีอะไรล�
 - singleton ที่ลงทะเบียนด้วยมือ (ไม่มี bean definition) ไม่ถูกแสดง และ context แม่ (parent) ถูกละเว้น ให้ snapshot แยกทีละ context
 - ผลของ condition จัดกลุ่มตามชื่อสั้นของ condition ต่อแหล่งที่มา ถ้ามีหลาย condition ชื่อเดียวกันจะถูกรวมกัน (ต้อง match ทั้งหมด)
 - ยังไม่ได้เผยแพร่ขึ้น Maven Central และยังไม่ได้ทดสอบกับ Spring Boot 3.5
+
+### สัญญาอนุญาต
+
+[MIT](LICENSE)
