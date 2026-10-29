@@ -118,7 +118,7 @@ Regenerate the shared baseline: `UPDATE_CONTEXT_BASELINE=true ./mvnw test` in an
 
 ## Known limitations
 
-- Bean types are the definition's resolvable type, not the runtime class; a type that cannot be resolved without instantiating is recorded as `?`.
+- Bean types are the definition's resolvable type, not the runtime class; a type that cannot be resolved without instantiating, or whose class cannot be loaded, is recorded as `?`.
 - Manually registered singletons (no bean definition) are not listed, and parent-context beans/reports are ignored: snapshot each context separately.
 - Condition outcomes are keyed by condition simple name per source; several conditions with the same simple name on one source are merged (all must match).
 - JDK proxies are shown as `proxy[interfaces]`; CGLIB `$$` suffixes are stripped.
