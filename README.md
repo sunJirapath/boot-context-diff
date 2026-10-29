@@ -123,9 +123,8 @@ Regenerate the shared baseline: `UPDATE_CONTEXT_BASELINE=true ./mvnw test` in an
 - Condition outcomes are keyed by condition simple name per source; several conditions with the same simple name on one source are merged (all must match).
 - JDK proxies are shown as `proxy[interfaces]`; CGLIB `$$` suffixes are stripped.
 - Only one schema version (1) exists; a different `schemaVersion` fails with `IllegalStateException` rather than migrating.
-- Not published to Maven Central; verified on Windows only (output is `\n`-only and path-independent by design, but not run on
-  Linux/macOS). [`.github/workflows/ci.yml`](.github/workflows/ci.yml) builds everything on Linux, macOS and Windows, but has
-  not been executed yet.
+- Not published to Maven Central. [`.github/workflows/ci.yml`](.github/workflows/ci.yml) builds the library and all three
+  examples on Linux, macOS and Windows (JDK 21 Temurin); the first run on the initial commit passed on all three.
 - Boot 3.5 is untested (see Compatibility).
 
 ## Build notes
