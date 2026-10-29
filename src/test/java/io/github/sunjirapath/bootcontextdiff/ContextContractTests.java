@@ -1,4 +1,4 @@
-package io.github.bootcontextdiff;
+package io.github.sunjirapath.bootcontextdiff;
 
 import java.nio.file.Files;
 import java.nio.file.Path;

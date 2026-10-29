@@ -1,4 +1,4 @@
-package io.github.bootcontextdiff;
+package io.github.sunjirapath.bootcontextdiff;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;

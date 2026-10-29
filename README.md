@@ -130,15 +130,15 @@ Maven (test scope):
 
 ```xml
 <dependency>
-  <groupId>io.github.bootcontextdiff</groupId>
+  <groupId>io.github.sunjirapath.bootcontextdiff</groupId>
   <artifactId>boot-context-diff</artifactId>
   <version>0.1.0-SNAPSHOT</version>
   <scope>test</scope>
 </dependency>
 ```
 
-Gradle (Groovy DSL `testImplementation 'io.github.bootcontextdiff:boot-context-diff:0.1.0-SNAPSHOT'`, Kotlin DSL
-`testImplementation("io.github.bootcontextdiff:boot-context-diff:0.1.0-SNAPSHOT")`; add `mavenLocal()` to repositories).
+Gradle (Groovy DSL `testImplementation 'io.github.sunjirapath.bootcontextdiff:boot-context-diff:0.1.0-SNAPSHOT'`, Kotlin DSL
+`testImplementation("io.github.sunjirapath.bootcontextdiff:boot-context-diff:0.1.0-SNAPSHOT")`; add `mavenLocal()` to repositories).
 
 ### Updating the baseline
 

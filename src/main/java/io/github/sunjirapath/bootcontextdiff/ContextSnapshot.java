@@ -1,4 +1,4 @@
-package io.github.bootcontextdiff;
+package io.github.sunjirapath.bootcontextdiff;
 
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
