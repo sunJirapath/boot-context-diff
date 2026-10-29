@@ -9,9 +9,15 @@ import java.nio.file.Path;
 import java.util.List;
 
 import tools.jackson.core.JacksonException;
+import tools.jackson.core.StreamReadFeature;
 import tools.jackson.core.util.DefaultIndenter;
 import tools.jackson.core.util.DefaultPrettyPrinter;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.MapperFeature;
+import tools.jackson.databind.cfg.CoercionAction;
+import tools.jackson.databind.cfg.CoercionInputShape;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.type.LogicalType;
 
 import org.springframework.context.ConfigurableApplicationContext;
 
@@ -21,7 +27,15 @@ import org.springframework.context.ConfigurableApplicationContext;
  */
 public final class ContextContract {
 
-	private static final JsonMapper MAPPER = JsonMapper.builder().build();
+	private static final JsonMapper MAPPER = JsonMapper.builder()
+		.enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+		.disable(MapperFeature.ALLOW_COERCION_OF_SCALARS)
+		.disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT)
+		.withCoercionConfig(LogicalType.Textual, (config) -> config
+			.setCoercion(CoercionInputShape.Integer, CoercionAction.Fail)
+			.setCoercion(CoercionInputShape.Float, CoercionAction.Fail)
+			.setCoercion(CoercionInputShape.Boolean, CoercionAction.Fail))
+		.build();
 
 	// Fixed "\n" so a baseline written on Windows is byte-identical to one written on Linux.
 	private static final DefaultPrettyPrinter PRINTER = new DefaultPrettyPrinter()

@@ -1,6 +1,8 @@
 # boot-context-diff — fail the build when your Spring Boot context changes unexpectedly
 
 [![CI](https://github.com/sunJirapath/boot-context-diff/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sunJirapath/boot-context-diff/actions/workflows/ci.yml)
+[![Line coverage (2026-10-29 audit)](https://img.shields.io/badge/audit%20lines-100%25-brightgreen)](docs/testing-audit.md)
+[![Branch coverage (2026-10-29 audit)](https://img.shields.io/badge/audit%20branches-98.8%25-brightgreen)](docs/testing-audit.md)
 ![Java 21](https://img.shields.io/badge/Java-21-blue)
 ![Spring Boot 4](https://img.shields.io/badge/Spring%20Boot-4-green)
 ![Maven](https://img.shields.io/badge/Maven-supported-blue)
@@ -71,7 +73,8 @@ A condition that exists on only one side is reported as `matched -> not evaluate
 ### How it works
 
 - **Beans**: every non-abstract bean definition, by name, with its exposed type. Types come from the merged bean
-  definition, so no bean is instantiated. CGLIB `$$` suffixes are stripped, JDK proxies are shown as
+  definition and Spring's non-initializing type prediction for factory methods and `FactoryBean` products.
+  No bean is instantiated. Recognized CGLIB suffixes are stripped, JDK proxies are shown as
   `proxy[interfaces]`, and a type that cannot be resolved or loaded is recorded as `?` instead of crashing the snapshot.
 - **Conditions**: Spring Boot's `ConditionEvaluationReport`, reduced to *configuration class or bean method → condition
   simple name → matched (`true`/`false`)*. Outcome messages are dropped on purpose because they can echo property values.
@@ -79,6 +82,8 @@ A condition that exists on only one side is reported as `matched -> not evaluate
   Windows is byte-identical to one written on Linux. CRLF and a leading BOM (Notepad, PowerShell redirects) are tolerated when reading.
 - **Failure messages** name the baseline file. An empty, non-JSON, partial or wrong-`schemaVersion` baseline fails with a
   clear `IllegalStateException` rather than a `NullPointerException`; an unreadable file raises `UncheckedIOException`.
+  Duplicate JSON keys and values of the wrong JSON type are rejected; strings/numbers are never coerced into booleans,
+  and fractional or quoted schema versions are rejected.
 
 ### Baseline format
 
@@ -176,7 +181,7 @@ deterministic output.
 
 | Example | Command | Tests |
 |---|---|---|
-| Library | `./mvnw install` | 27 |
+| Library | `./mvnw install` | See [audit results](docs/testing-audit.md) |
 | [Maven](examples/maven) | `(cd examples/maven && ./mvnw clean verify)` | 3 |
 | [Gradle, Groovy DSL](examples/gradle-groovy) | `(cd examples/gradle-groovy && ./gradlew clean test)` | 3 |
 | [Gradle, Kotlin DSL](examples/gradle-kotlin) | `(cd examples/gradle-kotlin && ./gradlew clean test)` | 3 |
@@ -191,6 +196,10 @@ baseline with `UPDATE_CONTEXT_BASELINE=true ./mvnw test` in any one example.
 - Condition outcomes are keyed by condition simple name per source; several conditions with the same simple name on one source are merged (all must match).
 - JDK proxies are shown as `proxy[interfaces]`; CGLIB `$$` suffixes are stripped.
 - Only one schema version (1) exists; a different `schemaVersion` fails with `IllegalStateException` rather than migrating.
+- Baselines made before the factory-type fix may contain factory implementation names instead of product types. Review
+  these diffs and regenerate deliberately; the bundled example baseline has been updated for the two affected Boot beans.
+- Snapshot a stable context after startup. Concurrent context/report mutation and simultaneous writes to the same baseline
+  file are not supported. Explicit writes are not transactional; retain the committed baseline if a write is interrupted.
 - Not published to Maven Central.
 - Boot 3.5 is untested (see Compatibility).
 
@@ -204,15 +213,13 @@ Build notes:
 
 - Windows, this repo's wrapper: `maven-wrapper-plugin:3.3.4:wrapper` failed here with `Negative time`, so the Maven wrapper
   scripts were extracted by hand from the plugin's `-only-script.zip`. Wrapper behaviour was verified with `./mvnw`.
-- The Gradle **Kotlin DSL** example failed in the author's environment with `NoSuchMethodError: Settings_gradle.<init>`
-  (even for a one-line script) against the existing `~/.gradle` user home, but passed with a fresh `GRADLE_USER_HOME`.
-  Bisecting showed the compiled Kotlin-script cache `caches/<version>/kotlin-dsl/scripts` carried a bad class (a fresh home plus a
-  copy of only that directory reproduces the error; `jars-*`, `transforms`, `fileContent`/`fileHashes`, `dependencies-accessors`
-  and `kotlin-dsl/accessors` do not). Renaming that directory was not enough while a long-running Gradle daemon was alive:
-  it recompiled the same bad class. After `gradlew --stop` and moving the directory aside, the example passed on the default
-  home, twice in a row. So the cause is a poisoned script cache written by a stale daemon, not the library or the example;
-  what first made that daemon produce the bad class is not known. If you hit this: `./gradlew --stop`, move
-  `~/.gradle/caches/<version>/kotlin-dsl/scripts` aside, rerun; or use `GRADLE_USER_HOME=<empty dir> ./gradlew clean test`.
+- The Gradle **Kotlin DSL** example can fail locally before loading the library with
+  `NoSuchMethodError: Settings_gradle.<init>` or unresolved build-script references. In the 2026-10-29 Windows audit,
+  fresh user/project caches alone did not fix invocation through the user's `~/.gradle` directory junction. Invoking the
+  same distribution through its physical path, or downloading it into a workspace-local `GRADLE_USER_HOME`, passed.
+  All 308 bundled JARs had identical SHA-256 hashes; the exact Gradle path/cache failure remains unconfirmed.
+  Use a workspace-local Gradle home and the wrapper if affected. See [audit results](docs/testing-audit.md) for evidence
+  and the remaining validation limits.
 
 Releasing (maintainer): `./mvnw -Prelease deploy` builds the sources and javadoc jars, signs everything with GPG and uploads
 the bundle to the Central Portal (server id `central` in `~/.m2/settings.xml`); it stays in "validated" state until published
@@ -275,6 +282,8 @@ auto-configuration เปลี่ยนโดยไม่มีอะไรล�
 - type ของ bean คือ type จาก bean definition ไม่ใช่ runtime class ถ้า resolve ไม่ได้หรือโหลดคลาสไม่ได้จะบันทึกเป็น `?`
 - singleton ที่ลงทะเบียนด้วยมือ (ไม่มี bean definition) ไม่ถูกแสดง และ context แม่ (parent) ถูกละเว้น ให้ snapshot แยกทีละ context
 - ผลของ condition จัดกลุ่มตามชื่อสั้นของ condition ต่อแหล่งที่มา ถ้ามีหลาย condition ชื่อเดียวกันจะถูกรวมกัน (ต้อง match ทั้งหมด)
+- baseline เก่าที่บันทึกคลาส `FactoryBean` แทน product type ต้องตรวจ diff และสร้างใหม่อย่างตั้งใจ
+- ให้ snapshot หลัง context เริ่มทำงานเสร็จและหยุดเปลี่ยนแปลง ไม่รองรับการแก้ context/report ระหว่างอ่าน หรือเขียน baseline เดียวกันพร้อมกัน
 - ยังไม่ได้เผยแพร่ขึ้น Maven Central และยังไม่ได้ทดสอบกับ Spring Boot 3.5
 
 ### สัญญาอนุญาต
