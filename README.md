@@ -1,8 +1,8 @@
 # boot-context-diff — fail the build when your Spring Boot context changes unexpectedly
 
 [![CI](https://github.com/sunJirapath/boot-context-diff/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sunJirapath/boot-context-diff/actions/workflows/ci.yml)
-![Line coverage (2026-10-29 audit)](https://img.shields.io/badge/audit%20lines-100%25-brightgreen)
-![Branch coverage (2026-10-29 audit)](https://img.shields.io/badge/audit%20branches-98.8%25-brightgreen)
+![Line coverage (2026-10-30 audit)](https://img.shields.io/badge/audit%20lines-100%25-brightgreen)
+![Branch coverage (2026-10-30 audit)](https://img.shields.io/badge/audit%20branches-99.1%25-brightgreen)
 ![Java 21](https://img.shields.io/badge/Java-21-blue)
 ![Spring Boot 4](https://img.shields.io/badge/Spring%20Boot-4-green)
 ![Maven](https://img.shields.io/badge/Maven-supported-blue)
@@ -52,7 +52,7 @@ class ContextContractTest {
 }
 ```
 
-The whole public API is two static methods:
+The contract API is two static methods, each with an optional `Map<String, Boolean> checks` argument:
 
 | Method | Behaviour |
 |---|---|
@@ -67,8 +67,21 @@ The whole public API is two static methods:
 | Bean added | `ADDED BEAN        name (Type)` |
 | Bean type changed | `BEAN TYPE CHANGED name: A -> B` |
 | Auto-configuration condition outcome changed | `CONDITION CHANGED source [Condition]: matched -> not matched` |
+| Explicit boolean check changed, added or removed | `CHECK CHANGED     name: true -> false` |
 
 A condition that exists on only one side is reported as `matched -> not evaluated` (or the reverse).
+
+Some behavior changes without changing bean types or condition outcomes. For example, disabling GraphiQL can remove its
+HTTP route while the structural snapshot stays identical. Supply a named boolean result to cover such behavior:
+
+```java
+Map<String, Boolean> checks = Map.of("GraphiQL reachable", graphiqlResponse.statusCode() == 200);
+ContextContract.verify(context, BASELINE, checks);
+// Deliberate baseline generation: ContextContract.write(context, BASELINE, checks);
+```
+
+The caller runs the HTTP probe (following redirects) or evaluates the feature flag before each write/verify. Only the
+check name and boolean result are stored. Omitted checks fail verification; checks are not evaluated automatically.
 
 ### How it works
 
@@ -104,12 +117,17 @@ Abridged from [`examples/shared/context-baseline.json`](examples/shared/context-
 ```
 
 `schemaVersion` describes the layout of this file and is independent of any Spring Boot version.
+The original two-argument API keeps this version-1 format unchanged. Non-empty checks use version 2 with an additional
+`"checks" : { "GraphiQL reachable" : true }` section. This library reads both versions; older readers reject version 2.
+Adding checks to an existing baseline requires deliberate regeneration. Check names are stored verbatim; use stable,
+non-sensitive labels, never URLs containing credentials or response bodies.
 
 ### What it does not do
 
 - It does not instantiate beans (types come from bean definitions) and never serializes property values, environment
   values, secrets or condition messages. Condition outcomes are recorded as `true`/`false` only.
-- It does not compare security filter chains, HTTP endpoints or message converters.
+- It does not inspect security filter chains, HTTP endpoints or message converters automatically. Use explicit boolean
+  checks for selected runtime behavior; these only cover the behavior the caller actually probes.
 - It does not update baselines automatically, and a failed `verify` never touches the baseline file.
 - No agent, server, dashboard, CLI or build plugin. It is one plain JAR; Maven and Gradle only differ in how you declare the dependency.
 
@@ -181,7 +199,7 @@ deterministic output.
 
 | Example | Command | Tests |
 |---|---|---|
-| Library | `./mvnw install` | 103 |
+| Library | `./mvnw install` | 126 |
 | [Maven](examples/maven) | `(cd examples/maven && ./mvnw clean verify)` | 3 |
 | [Gradle, Groovy DSL](examples/gradle-groovy) | `(cd examples/gradle-groovy && ./gradlew clean test)` | 3 |
 | [Gradle, Kotlin DSL](examples/gradle-kotlin) | `(cd examples/gradle-kotlin && ./gradlew clean test)` | 3 |
@@ -195,7 +213,8 @@ baseline with `UPDATE_CONTEXT_BASELINE=true ./mvnw test` in any one example.
 - Manually registered singletons (no bean definition) are not listed, and parent-context beans/reports are ignored: snapshot each context separately.
 - Condition outcomes are keyed by condition simple name per source; several conditions with the same simple name on one source are merged (all must match).
 - JDK proxies are shown as `proxy[interfaces]`; CGLIB `$$` suffixes are stripped.
-- Only one schema version (1) exists; a different `schemaVersion` fails with `IllegalStateException` rather than migrating.
+- Schema versions 1 (structure) and 2 (structure plus non-empty checks) are supported; other versions and invalid check
+  sections fail with `IllegalStateException`. Version 2 requires this library version or newer.
 - Baselines made before the factory-type fix may contain factory implementation names instead of product types. Review
   these diffs and regenerate deliberately; the bundled example baseline has been updated for the two affected Boot beans.
 - Snapshot a stable context after startup. Concurrent context/report mutation and simultaneous writes to the same baseline
@@ -255,7 +274,9 @@ auto-configuration เปลี่ยนโดยไม่มีอะไรล�
 
 - ไม่สร้างอินสแตนซ์ของ bean (อ่าน type จาก bean definition) และไม่บันทึกค่า property, ค่า environment, secret
   หรือข้อความของ condition เลย เก็บผลของ condition เป็น `true`/`false` เท่านั้น
-- ไม่เปรียบเทียบ security filter chain, HTTP endpoint หรือ message converter
+- ไม่ตรวจ security filter chain, HTTP endpoint หรือ message converter อัตโนมัติ แต่เพิ่ม boolean checks ที่ผู้ใช้ประเมินเองได้
+  เช่น `Map.of("GraphiQL reachable", response.statusCode() == 200)` เป็นอาร์กิวเมนต์ที่สามของ `write` และ `verify`
+  ถ้าผลเปลี่ยนหรือไม่ได้ส่ง check เดิมมา จะ fail พร้อม `CHECK CHANGED` โดยใช้ baseline schema 2; API เดิมยังใช้ schema 1
 - ไม่อัปเดต baseline อัตโนมัติ และ `verify` ที่ล้มเหลวจะไม่แตะไฟล์ baseline
 - ไม่มี agent, server, dashboard, CLI หรือ build plugin เป็นแค่ JAR เดียว ใช้ได้ทั้ง Maven และ Gradle
 

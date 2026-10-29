@@ -3,11 +3,15 @@ package io.github.sunjirapath.bootcontextdiff;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.FactoryBean;
@@ -18,23 +22,49 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.util.ClassUtils;
 
 /**
- * Structural fingerprint of an application context: bean name to exposed type, and
- * configuration source to condition outcomes. Holds no property or environment values.
+ * Fingerprint of an application context: bean name to exposed type, configuration source
+ * to condition outcomes, and optional caller-supplied boolean checks.
+ * Does not read property or environment values.
  *
  * @param schemaVersion version of the JSON layout, independent of the Spring Boot version
  * @param beans bean name to exposed type name
  * @param conditions configuration class or bean method to condition type to matched
+ * @param checks explicitly supplied check name to boolean result; omitted from JSON when empty
  */
 public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
-		Map<String, Map<String, Boolean>> conditions) {
+		Map<String, Map<String, Boolean>> conditions,
+		@JsonInclude(JsonInclude.Include.NON_EMPTY) Map<String, Boolean> checks) {
+
+	public ContextSnapshot {
+		checks = checks == null ? Map.of() : Collections.unmodifiableMap(new TreeMap<>(checks));
+		checks.forEach((name, result) -> {
+			if (name.isBlank() || result == null) {
+				throw new IllegalArgumentException("Checks require non-blank names and boolean results");
+			}
+		});
+	}
+
+	/** Retains the original constructor for structural snapshots and existing callers. */
+	public ContextSnapshot(int schemaVersion, Map<String, String> beans,
+			Map<String, Map<String, Boolean>> conditions) {
+		this(schemaVersion, beans, conditions, Map.of());
+	}
 
 	static final int SCHEMA_VERSION = 1;
+
+	static final int CHECKS_SCHEMA_VERSION = 2;
 
 	private static final Pattern GENERATED_SUFFIX = Pattern
 		.compile("\\$\\$(?:SpringCGLIB\\$\\$|EnhancerBy(?:Spring)?CGLIB\\$\\$|Lambda(?:\\$|/)).*");
 
 	/** Reads the context without instantiating any bean. */
 	public static ContextSnapshot of(ConfigurableApplicationContext context) {
+		return of(context, Map.of());
+	}
+
+	/** Reads structure and records explicitly supplied boolean checks without evaluating them. */
+	public static ContextSnapshot of(ConfigurableApplicationContext context, Map<String, Boolean> checks) {
+		Objects.requireNonNull(checks, "checks");
 		ConfigurableListableBeanFactory factory = context.getBeanFactory();
 		// shortcut: manually registered singletons (no bean definition) are not listed
 		Map<String, String> beans = new TreeMap<>();
@@ -57,7 +87,7 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 						entry.getOutcome().isMatch(), Boolean::logicalAnd));
 			});
 		}
-		return new ContextSnapshot(SCHEMA_VERSION, beans, conditions);
+		return new ContextSnapshot(checks.isEmpty() ? SCHEMA_VERSION : CHECKS_SCHEMA_VERSION, beans, conditions, checks);
 	}
 
 	// Lambda conditions are named Owner$$Lambda/0x<address> and anonymous ones have no simple name.
@@ -133,7 +163,17 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 				}
 			}
 		}
+		for (String name : union(checks, actual.checks)) {
+			if (!Objects.equals(checks.get(name), actual.checks.get(name))) {
+				lines.add("CHECK CHANGED     " + name + ": " + checkResult(checks.get(name)) + " -> "
+						+ checkResult(actual.checks.get(name)));
+			}
+		}
 		return lines;
+	}
+
+	private static String checkResult(Boolean result) {
+		return result == null ? "not supplied" : result.toString();
 	}
 
 	private static String outcome(Boolean matched) {

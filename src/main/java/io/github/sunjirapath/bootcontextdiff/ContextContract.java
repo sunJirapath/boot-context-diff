@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.StreamReadFeature;
@@ -22,7 +23,7 @@ import tools.jackson.databind.type.LogicalType;
 import org.springframework.context.ConfigurableApplicationContext;
 
 /**
- * Records and verifies the structure of an application context against a baseline file.
+ * Records and verifies context structure and optional named boolean checks against a baseline file.
  * Baselines are only ever written by {@link #write}; {@link #verify} never touches the file.
  */
 public final class ContextContract {
@@ -46,7 +47,12 @@ public final class ContextContract {
 
 	/** Writes (or overwrites) the baseline for {@code context}. Call this deliberately, never from verify. */
 	public static void write(ConfigurableApplicationContext context, Path baseline) {
-		String json = MAPPER.writer().with(PRINTER).writeValueAsString(ContextSnapshot.of(context)) + "\n";
+		write(context, baseline, Map.of());
+	}
+
+	/** Writes structure plus named boolean checks evaluated by the caller, such as feature flags or HTTP probes. */
+	public static void write(ConfigurableApplicationContext context, Path baseline, Map<String, Boolean> checks) {
+		String json = MAPPER.writer().with(PRINTER).writeValueAsString(ContextSnapshot.of(context, checks)) + "\n";
 		try {
 			if (baseline.toAbsolutePath().getParent() != null) {
 				Files.createDirectories(baseline.toAbsolutePath().getParent());
@@ -63,6 +69,11 @@ public final class ContextContract {
 	 * @throws AssertionError if the baseline is missing or differs; the baseline is left untouched
 	 */
 	public static void verify(ConfigurableApplicationContext context, Path baseline) {
+		verify(context, baseline, Map.of());
+	}
+
+	/** Verifies structure and caller-supplied checks; missing or changed checks also fail without touching the file. */
+	public static void verify(ConfigurableApplicationContext context, Path baseline, Map<String, Boolean> checks) {
 		if (Files.isDirectory(baseline)) {
 			throw new AssertionError("Baseline path " + baseline.toAbsolutePath() + " is a directory, not a file");
 		}
@@ -71,7 +82,7 @@ public final class ContextContract {
 					+ ". Generate it deliberately with ContextContract.write(context, path) and commit it.");
 		}
 		ContextSnapshot expected = read(baseline);
-		List<String> differences = expected.diff(ContextSnapshot.of(context));
+		List<String> differences = expected.diff(ContextSnapshot.of(context, checks));
 		if (!differences.isEmpty()) {
 			throw new AssertionError("ApplicationContext differs from baseline " + baseline.toAbsolutePath()
 					+ " (" + differences.size() + " difference(s)):\n" + String.join("\n", differences)
@@ -104,9 +115,15 @@ public final class ContextContract {
 		if (snapshot == null) {
 			throw new IllegalStateException("Baseline " + baseline + " is empty");
 		}
-		if (snapshot.schemaVersion() != ContextSnapshot.SCHEMA_VERSION) {
+		if (snapshot.schemaVersion() != ContextSnapshot.SCHEMA_VERSION
+				&& snapshot.schemaVersion() != ContextSnapshot.CHECKS_SCHEMA_VERSION) {
 			throw new IllegalStateException("Baseline " + baseline + " has schemaVersion " + snapshot.schemaVersion()
-					+ ", this library reads " + ContextSnapshot.SCHEMA_VERSION);
+					+ ", this library reads " + ContextSnapshot.SCHEMA_VERSION + " and " + ContextSnapshot.CHECKS_SCHEMA_VERSION);
+		}
+		if ((snapshot.schemaVersion() == ContextSnapshot.CHECKS_SCHEMA_VERSION && snapshot.checks().isEmpty())
+				|| (snapshot.schemaVersion() == ContextSnapshot.SCHEMA_VERSION && !snapshot.checks().isEmpty())) {
+			throw new IllegalStateException("Baseline " + baseline + " schemaVersion " + snapshot.schemaVersion()
+					+ " requires non-empty checks only for schemaVersion " + ContextSnapshot.CHECKS_SCHEMA_VERSION);
 		}
 		if (snapshot.beans() == null || snapshot.conditions() == null) {
 			throw new IllegalStateException("Baseline " + baseline + " lacks its \"beans\" or \"conditions\" section");
