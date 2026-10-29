@@ -9,6 +9,7 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
 
+import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionEvaluationReport;
@@ -59,9 +60,16 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 
 	// Declared type first: runtime classes of proxied beans carry per-run counters ($Proxy45, $$SpringCGLIB$$0).
 	private static String typeName(ConfigurableListableBeanFactory factory, String name) {
-		Class<?> type = factory.getMergedBeanDefinition(name).getResolvableType().resolve();
-		if (type == null) {
-			type = factory.getType(name, false);
+		Class<?> type;
+		try {
+			type = factory.getMergedBeanDefinition(name).getResolvableType().resolve();
+			if (type == null) {
+				type = factory.getType(name, false);
+			}
+		}
+		catch (BeansException ex) {
+			// a definition whose class cannot be loaded must not make the whole snapshot fail
+			type = null;
 		}
 		if (type == null) {
 			return "?";

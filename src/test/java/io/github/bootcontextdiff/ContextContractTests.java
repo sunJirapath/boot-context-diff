@@ -10,6 +10,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.factory.config.BeanPostProcessor;
+import org.springframework.beans.factory.support.BeanDefinitionRegistry;
+import org.springframework.beans.factory.support.GenericBeanDefinition;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -122,6 +124,77 @@ class ContextContractTests {
 			.hasMessageContaining(missing.toString())
 			.hasMessageContaining("ContextContract.write"));
 		assertThat(missing).doesNotExist();
+	}
+
+	@Test
+	void unreadableBaselineFailsNamingTheFile() throws Exception {
+		for (String content : new String[] { "", "{", "not json", "[]", "null" }) {
+			Path baseline = dir.resolve("bad.json");
+			Files.writeString(baseline, content);
+			runner.run((ctx) -> assertThatThrownBy(() -> ContextContract.verify(ctx, baseline))
+				.as("baseline content: %s", content)
+				.hasMessageContaining(baseline.toString()));
+		}
+	}
+
+	@Test
+	void baselineMissingSectionsFailsClearlyInsteadOfNpe() throws Exception {
+		for (String content : new String[] { "{\"schemaVersion\":1}", "{\"schemaVersion\":1,\"beans\":{}}",
+				"{\"schemaVersion\":1,\"conditions\":{}}", "{\"schemaVersion\":1,\"beans\":null,\"conditions\":null}" }) {
+			Path baseline = dir.resolve("partial.json");
+			Files.writeString(baseline, content);
+			runner.run((ctx) -> assertThatThrownBy(() -> ContextContract.verify(ctx, baseline))
+				.as("baseline content: %s", content)
+				.isNotInstanceOf(NullPointerException.class)
+				.hasMessageContaining(baseline.toString()));
+		}
+	}
+
+	@Test
+	void crlfBaselineAndUnusualBeanNamesRoundTrip() throws Exception {
+		Path baseline = dir.resolve("baseline.json");
+		ApplicationContextRunner odd = runner.withBean("we\"ird\\nameé中", String.class, () -> "x");
+		odd.run((ctx) -> ContextContract.write(ctx, baseline));
+		Files.writeString(baseline, Files.readString(baseline).replace("\n", "\r\n"));
+		odd.run((ctx) -> assertThatCode(() -> ContextContract.verify(ctx, baseline)).doesNotThrowAnyException());
+	}
+
+	@Test
+	void byteOrderMarkInBaselineIsTolerated() {
+		Path baseline = dir.resolve("baseline.json");
+		runner.run((ctx) -> {
+			ContextContract.write(ctx, baseline);
+			Files.writeString(baseline, "﻿" + Files.readString(baseline));
+			assertThatCode(() -> ContextContract.verify(ctx, baseline)).doesNotThrowAnyException();
+		});
+	}
+
+	@Test
+	void unresolvableBeanClassDoesNotCrashTheSnapshot() {
+		Path baseline = dir.resolve("baseline.json");
+		runner.run((ctx) -> {
+			GenericBeanDefinition missing = new GenericBeanDefinition();
+			missing.setBeanClassName("does.not.Exist");
+			missing.setLazyInit(true);
+			// registered after refresh: a class that cannot load at startup would fail the context itself
+			((BeanDefinitionRegistry) ctx.getBeanFactory()).registerBeanDefinition("missing", missing);
+			ContextContract.write(ctx, baseline);
+			assertThat(Files.readString(baseline)).contains("\"missing\" : \"?\"");
+		});
+	}
+
+	@Test
+	void relativeBaselinePathWithoutParentWorks() throws Exception {
+		Path relative = Path.of("bcd-relative-" + System.nanoTime() + ".json");
+		try {
+			runner.run((ctx) -> {
+				ContextContract.write(ctx, relative);
+				ContextContract.verify(ctx, relative);
+			});
+		}
+		finally {
+			Files.deleteIfExists(relative);
+		}
 	}
 
 	@Configuration

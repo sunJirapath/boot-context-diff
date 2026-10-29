@@ -108,7 +108,7 @@ verify after a meaningful change (`demo.greeting.enabled=false`) that leaves the
 deterministic output.
 
 ```bash
-./mvnw install                                   # the library: 9 tests
+./mvnw install                                   # the library: 15 tests
 (cd examples/maven && ./mvnw clean verify)       # Maven, 3 tests
 (cd examples/gradle-groovy && ./gradlew clean test)   # Gradle Groovy DSL, 3 tests
 (cd examples/gradle-kotlin && ./gradlew clean test)   # Gradle Kotlin DSL, 3 tests

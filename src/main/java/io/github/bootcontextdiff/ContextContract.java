@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
+import tools.jackson.core.JacksonException;
 import tools.jackson.core.util.DefaultIndenter;
 import tools.jackson.core.util.DefaultPrettyPrinter;
 import tools.jackson.databind.json.JsonMapper;
@@ -64,14 +65,26 @@ public final class ContextContract {
 	private static ContextSnapshot read(Path baseline) {
 		ContextSnapshot snapshot;
 		try {
-			snapshot = MAPPER.readValue(Files.readString(baseline, StandardCharsets.UTF_8), ContextSnapshot.class);
+			String json = Files.readString(baseline, StandardCharsets.UTF_8);
+			// Windows editors (Notepad, PowerShell redirects) prepend a BOM that Jackson rejects
+			snapshot = MAPPER.readValue(json.startsWith("﻿") ? json.substring(1) : json, ContextSnapshot.class);
 		}
 		catch (IOException ex) {
 			throw new UncheckedIOException("Cannot read baseline " + baseline, ex);
 		}
+		catch (JacksonException ex) {
+			throw new IllegalStateException("Baseline " + baseline + " is not a valid context baseline: "
+					+ ex.getOriginalMessage(), ex);
+		}
+		if (snapshot == null) {
+			throw new IllegalStateException("Baseline " + baseline + " is empty");
+		}
 		if (snapshot.schemaVersion() != ContextSnapshot.SCHEMA_VERSION) {
 			throw new IllegalStateException("Baseline " + baseline + " has schemaVersion " + snapshot.schemaVersion()
 					+ ", this library reads " + ContextSnapshot.SCHEMA_VERSION);
+		}
+		if (snapshot.beans() == null || snapshot.conditions() == null) {
+			throw new IllegalStateException("Baseline " + baseline + " lacks its \"beans\" or \"conditions\" section");
 		}
 		return snapshot;
 	}
