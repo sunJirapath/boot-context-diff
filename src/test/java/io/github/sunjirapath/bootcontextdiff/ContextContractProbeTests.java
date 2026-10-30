@@ -44,8 +44,8 @@ class ContextContractProbeTests {
 
 	@Test
 	void wrongSchemaVersionNamesTheFile() throws Exception {
-		Path baseline = dir.resolve("v2.json");
-		Files.writeString(baseline, "{\"schemaVersion\":2,\"beans\":{},\"conditions\":{}}");
+		Path baseline = dir.resolve("v3.json");
+		Files.writeString(baseline, "{\"schemaVersion\":3,\"beans\":{},\"conditions\":{}}");
 		runner.run((ctx) -> assertThatThrownBy(() -> ContextContract.verify(ctx, baseline))
 			.isInstanceOf(IllegalStateException.class)
 			.hasMessageContaining(baseline.toString())
