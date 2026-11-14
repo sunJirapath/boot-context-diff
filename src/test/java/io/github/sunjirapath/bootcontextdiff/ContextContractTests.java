@@ -82,7 +82,7 @@ class ContextContractTests {
 		runner.withPropertyValues("demo.feature=on").run((ctx) -> ContextContract.write(ctx, baseline));
 		runner.run((ctx) -> assertThatThrownBy(() -> ContextContract.verify(ctx, baseline))
 			.hasMessageContaining("CONDITION CHANGED")
-			.hasMessageContaining("[OnPropertyCondition]: matched -> not matched")
+			.hasMessageContaining("[org.springframework.boot.autoconfigure.condition.OnPropertyCondition]: matched -> not matched")
 			.hasMessageContaining("REMOVED BEAN      feature"));
 	}
 
@@ -210,7 +210,7 @@ class ContextContractTests {
 		Condition lambda = (context, metadata) -> true;
 		runner.run((ctx) -> {
 			record(ctx, "lambda.Source", lambda, ConditionOutcome.match());
-			assertThat(ContextSnapshot.of(ctx).conditions().get("lambda.Source")).containsOnlyKeys("ContextContractTests");
+			assertThat(ContextSnapshot.of(ctx).conditions().get("lambda.Source")).containsOnlyKeys(ContextContractTests.class.getName());
 		});
 	}
 
@@ -230,13 +230,14 @@ class ContextContractTests {
 	}
 
 	@Test
-	void sourcesThatNormaliseToTheSameNameAreMerged() {
+	void sourcesThatNormaliseToTheSameNameFailClosed() {
 		Condition condition = (context, metadata) -> true;
-		// the earlier source does not match: last-write-wins would report the later, matching one
 		runner.run((ctx) -> {
 			record(ctx, "Twin$$SpringCGLIB$$0", condition, ConditionOutcome.noMatch("x"));
 			record(ctx, "Twin$$SpringCGLIB$$1", condition, ConditionOutcome.match());
-			assertThat(ContextSnapshot.of(ctx).conditions().get("Twin").values()).containsExactly(false);
+			assertThatThrownBy(() -> ContextSnapshot.of(ctx))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("Incomplete condition analysis: colliding source Twin");
 		});
 	}
 

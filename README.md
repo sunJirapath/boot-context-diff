@@ -56,7 +56,7 @@ The contract API is two static methods, each with an optional `Map<String, Boole
 
 | Method | Behaviour |
 |---|---|
-| `ContextContract.verify(context, path)` | Compares the live context with the baseline. Throws `AssertionError` if the baseline is missing or differs. Never touches the file. |
+| `ContextContract.verify(context, path)` | Compares the live context with the baseline. Throws `AssertionError` if missing or different, or `IllegalStateException` for incomplete analysis. Never touches the file. |
 | `ContextContract.write(context, path)` | Writes (or overwrites) the baseline, creating parent directories. Call it deliberately, never from `verify`. |
 
 ### What it detects
@@ -66,6 +66,7 @@ The contract API is two static methods, each with an optional `Map<String, Boole
 | Bean removed | `REMOVED BEAN      name (was Type)` |
 | Bean added | `ADDED BEAN        name (Type)` |
 | Bean type changed | `BEAN TYPE CHANGED name: A -> B` |
+| Alias added, removed or retargeted | Same bean diff lines, with `alias:<definition name>` as the value |
 | Auto-configuration condition outcome changed | `CONDITION CHANGED source [Condition]: matched -> not matched` |
 | Explicit boolean check changed, added or removed | `CHECK CHANGED     name: true -> false` |
 
@@ -86,11 +87,18 @@ check name and boolean result are stored. Omitted checks fail verification; chec
 ### How it works
 
 - **Beans**: every non-abstract bean definition, by name, with its exposed type. Types come from the merged bean
-  definition and Spring's non-initializing type prediction for factory methods and `FactoryBean` products.
+  definition and Spring's non-initializing type prediction for factory methods. `FactoryBean` product types come only
+  from declared `factoryBeanObjectType` metadata or generic signatures; runtime `getObjectType()` is never consulted.
+  Aliases of these definitions are stored in the same map as `"aliasName" : "alias:definitionName"`, including chained
+  aliases resolved to their definition. Retargeting an alias is detected even when both targets have the same type.
   No bean is instantiated. Recognized CGLIB suffixes are stripped, JDK proxies are shown as
-  `proxy[interfaces]`, and a type that cannot be resolved or loaded is recorded as `?` instead of crashing the snapshot.
+  `proxy[interfaces]`, and a type that cannot be resolved or loaded is recorded as `?` for inspection.
+  Verification rejects `?` in either the baseline or the live snapshot with `IllegalStateException` (incomplete analysis).
 - **Conditions**: Spring Boot's `ConditionEvaluationReport`, reduced to *configuration class or bean method → condition
-  simple name → matched (`true`/`false`)*. Outcome messages are dropped on purpose because they can echo property values.
+  full class name → matched (`true`/`false`)*. Nested classes retain `$` in their binary names. Distinct classes with the
+  same simple name retain independent outcomes. Outcome messages are dropped because they can echo property values.
+  Repeated condition keys within a source, or sources that normalize to the same key, fail capture, write and verify
+  with `IllegalStateException` (incomplete analysis). They are never AND-merged into a passing baseline.
 - **Determinism**: maps are sorted, indentation is fixed and line endings are always `\n`, so a baseline written on
   Windows is byte-identical to one written on Linux. CRLF and a leading BOM (Notepad, PowerShell redirects) are tolerated when reading.
 - **Failure messages** name the baseline file. An empty, non-JSON, partial or wrong-`schemaVersion` baseline fails with a
@@ -110,7 +118,7 @@ Abridged from [`examples/shared/context-baseline.json`](examples/shared/context-
   },
   "conditions" : {
     "demo.DemoApplication#greetingService" : {
-      "OnPropertyCondition" : true
+      "org.springframework.boot.autoconfigure.condition.OnPropertyCondition" : true
     }
   }
 }
@@ -121,6 +129,11 @@ The original two-argument API keeps this version-1 format unchanged. Non-empty c
 `"checks" : { "GraphiQL reachable" : true }` section. This library reads both versions; older readers reject version 2.
 Adding checks to an existing baseline requires deliberate regeneration. Check names are stored verbatim; use stable,
 non-sensitive labels, never URLs containing credentials or response bodies.
+The layout versions are unchanged by alias capture, metadata-only FactoryBean typing and full condition class names.
+Review and regenerate older baselines to include aliases, declared product types and full condition names. Old
+short-name condition keys produce a diff even if outcomes are unchanged; old readers omit aliases and use short names,
+so they cannot verify these new entries. Old baselines may already have lost condition identities through merging;
+regenerate them with this implementation before adoption.
 
 ### What it does not do
 
@@ -163,6 +176,46 @@ Maven (test scope):
 Gradle (Groovy DSL `testImplementation 'io.github.sunjirapath.bootcontextdiff:boot-context-diff:0.1.0'`, Kotlin DSL
 `testImplementation("io.github.sunjirapath.bootcontextdiff:boot-context-diff:0.1.0")`; add `mavenLocal()` to repositories).
 
+A clean consumer runner must also acquire and install the library source before running its tests. For a Maven
+consumer with its own Maven wrapper, use this GitHub Actions job. Set the repository variable `BOOT_CONTEXT_DIFF_REV`
+to the full 40-character commit SHA of the reviewed library source (containing these fixes), never a branch or tag.
+An absent or malformed revision fails before acquiring the library; a missing commit or failed install fails the job.
+Use the same approved revision for local installs and CI. This bootstraps from source; it does not publish an artifact.
+
+```yaml
+name: Consumer CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require a pinned library revision
+        shell: bash
+        env:
+          LIBRARY_REV: ${{ vars.BOOT_CONTEXT_DIFF_REV }}
+        run: |
+          [[ "$LIBRARY_REV" =~ ^[0-9a-f]{40}$ ]] || { echo "Set BOOT_CONTEXT_DIFF_REV to a full commit SHA"; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          repository: sunJirapath/boot-context-diff
+          ref: ${{ vars.BOOT_CONTEXT_DIFF_REV }}
+          path: .context-contract-library
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Bootstrap library
+        run: ./.context-contract-library/mvnw -B -f .context-contract-library/pom.xml install
+      - name: Verify consumer
+        run: ./mvnw -B verify
+```
+
+For a Gradle consumer, keep the source checkout and Maven install steps and replace the last command with
+`./gradlew test`; the consumer must include `mavenLocal()` as above. Each runner needs the bootstrap; a developer's
+local Maven repository is not available on a clean runner. Java 21 and network access to dependency repositories are required.
+
 ### Updating the baseline
 
 Baseline generation is explicit. Run once, review the file, commit it:
@@ -181,12 +234,12 @@ if the change is intended, and review the baseline's own diff in the pull reques
 ApplicationContext differs from baseline examples/shared/context-baseline.json (3 difference(s)):
 REMOVED BEAN      greetingService (was demo.DemoApplication$GreetingService)
 REMOVED BEAN      org.springframework.test.context.support.internalDynamicPropertyRegistrarBeanInitializer (was org.springframework.test.context.support.DynamicPropertyRegistrarBeanInitializer)
-CONDITION CHANGED demo.DemoApplication#greetingService [OnPropertyCondition]: matched -> not matched
+CONDITION CHANGED demo.DemoApplication#greetingService [org.springframework.boot.autoconfigure.condition.OnPropertyCondition]: matched -> not matched
 A difference is not necessarily a bug (dependency upgrades and config changes do this). If it is intended, review it and regenerate the baseline with ContextContract.write(context, path).
 ```
 
-Real output of `ContextContract.verify` in the Maven example with `demo.greeting.enabled=false` (only the baseline path is
-shortened; the real message prints the absolute path). The second `REMOVED BEAN` is genuine: the baseline was taken inside
+Expected output of `ContextContract.verify` in the Maven example with `demo.greeting.enabled=false` (the baseline path is
+shortened; the message prints the absolute path). The second `REMOVED BEAN` follows from the baseline being taken inside
 `@SpringBootTest`, which registers a test-support bean that the plain `SpringApplicationBuilder` context in that test lacks.
 Snapshot the same kind of context you verify.
 
@@ -209,14 +262,21 @@ baseline with `UPDATE_CONTEXT_BASELINE=true ./mvnw test` in any one example.
 
 ### Known limitations
 
-- Bean types are the definition's resolvable type, not the runtime class; a type that cannot be resolved without instantiating, or whose class cannot be loaded, is recorded as `?`.
+- Bean types are declared types, not guaranteed runtime classes. FactoryBeans declared as `FactoryBean<Object>` record
+  `java.lang.Object` even if runtime `getObjectType()` is more specific. Raw or unresolved products record `?`; writes
+  may record it for inspection, but verification fails closed until declared type metadata is supplied and regenerated.
 - Manually registered singletons (no bean definition) are not listed, and parent-context beans/reports are ignored: snapshot each context separately.
-- Condition outcomes are keyed by condition simple name per source; several conditions with the same simple name on one source are merged (all must match).
+- Aliases are captured only for included local, non-abstract definitions; aliases of manual singletons, abstract
+  definitions and parent beans are outside this contract. Alias diffs use the existing bean diff labels. An alias
+  shadowing another definition fails capture with `IllegalStateException` (incomplete alias analysis).
+- Condition outcomes use full class names per source. Repeated evaluations of one type and collisions after generated
+  name normalization are unsupported and fail closed with incomplete analysis; adding boolean checks does not bypass
+  this failure. Lambda call sites normalize to their owner class, and proxy identities use sorted interface names.
 - JDK proxies are shown as `proxy[interfaces]`; CGLIB `$$` suffixes are stripped.
 - Schema versions 1 (structure) and 2 (structure plus non-empty checks) are supported; other versions and invalid check
   sections fail with `IllegalStateException`. Version 2 requires this library version or newer.
-- Baselines made before the factory-type fix may contain factory implementation names instead of product types. Review
-  these diffs and regenerate deliberately; the bundled example baseline has been updated for the two affected Boot beans.
+- Older baselines may contain factory implementation or runtime product types instead of declared product types, and
+  omit aliases. Review these diffs and regenerate deliberately; do not hand-copy a runtime type to suppress a failure.
 - Snapshot a stable context after startup. Concurrent context/report mutation and simultaneous writes to the same baseline
   file are not supported. Explicit writes are not transactional; retain the committed baseline if a write is interrupted.
 - Not published to Maven Central.
@@ -254,7 +314,7 @@ auto-configuration เปลี่ยนโดยไม่มีอะไรล�
 
 ### เริ่มใช้งานเร็ว
 
-1. ติดตั้งไลบรารีในเครื่อง (`./mvnw install`) แล้วเพิ่มเป็น dependency ขอบเขต test (ดูหัวข้อ Installation ด้านบน)
+1. ติดตั้งไลบรารีในเครื่อง (`./mvnw install`) แล้วเพิ่มเป็น dependency ขอบเขต test (ดูหัวข้อ Installation ด้านบน รวมถึงตัวอย่าง CI ที่ checkout source ด้วย full commit SHA แล้ว install ก่อนทดสอบ consumer)
 2. สร้าง baseline ครั้งแรกอย่างตั้งใจด้วย `ContextContract.write(context, path)` ตรวจไฟล์ แล้ว commit
 3. เรียก `ContextContract.verify(context, path)` ในเทสต์ปกติ (ตัวอย่างโค้ดอยู่ใน Quick start ด้านบน)
 
@@ -293,10 +353,13 @@ auto-configuration เปลี่ยนโดยไม่มีอะไรล�
 
 ### ข้อจำกัด
 
-- type ของ bean คือ type จาก bean definition ไม่ใช่ runtime class ถ้า resolve ไม่ได้หรือโหลดคลาสไม่ได้จะบันทึกเป็น `?`
+- type ของ bean คือ type จาก bean definition ไม่ใช่ runtime class; product ของ FactoryBean ใช้ metadata หรือ generic signature เท่านั้น ไม่เรียก runtime `getObjectType()`
+- ถ้า resolve ไม่ได้หรือโหลดคลาสไม่ได้จะบันทึกเป็น `?` เพื่อการตรวจสอบ แต่ `verify` จะ fail closed ด้วย `IllegalStateException` หาก baseline หรือ context มี `?`
 - singleton ที่ลงทะเบียนด้วยมือ (ไม่มี bean definition) ไม่ถูกแสดง และ context แม่ (parent) ถูกละเว้น ให้ snapshot แยกทีละ context
-- ผลของ condition จัดกลุ่มตามชื่อสั้นของ condition ต่อแหล่งที่มา ถ้ามีหลาย condition ชื่อเดียวกันจะถูกรวมกัน (ต้อง match ทั้งหมด)
-- baseline เก่าที่บันทึกคลาส `FactoryBean` แทน product type ต้องตรวจ diff และสร้างใหม่อย่างตั้งใจ
+- alias ของ local non-abstract bean definition ถูกบันทึกใน beans เป็น `alias:<definition name>` และตรวจจับการเพิ่ม ลบ หรือเปลี่ยน target ได้; alias ของ parent, abstract definition และ manual singleton ไม่อยู่ใน contract
+- ผลของ condition ใช้ชื่อคลาสเต็ม (nested class ใช้ `$`) ต่อ source จึงแยกคลาสที่ชื่อสั้นเหมือนกันได้ หาก key ซ้ำ หรือ source normalize แล้วซ้ำ จะ fail closed ด้วย `IllegalStateException` (incomplete analysis) ไม่รวมผลด้วย AND อีกต่อไป
+- alias ที่ shadow bean definition อื่นจะ fail capture ด้วย `IllegalStateException` (incomplete alias analysis)
+- baseline เก่าอาจขาด alias ใช้ runtime product type หรือสูญเสีย condition identity จากการรวมผล ต้องตรวจ diff และสร้างใหม่อย่างตั้งใจด้วย implementation นี้
 - ให้ snapshot หลัง context เริ่มทำงานเสร็จและหยุดเปลี่ยนแปลง ไม่รองรับการแก้ context/report ระหว่างอ่าน หรือเขียน baseline เดียวกันพร้อมกัน
 - ยังไม่ได้เผยแพร่ขึ้น Maven Central และยังไม่ได้ทดสอบกับ Spring Boot 3.5
 

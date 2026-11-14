@@ -4,6 +4,7 @@
     "applicationAvailability" : "org.springframework.boot.availability.ApplicationAvailabilityBean",
     "applicationTaskExecutor" : "org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor",
     "applicationTaskExecutorAsyncConfigurer" : "org.springframework.boot.autoconfigure.task.TaskExecutorConfigurations$ApplicationTaskExecutorAsyncConfigurer",
+    "bootstrapExecutor" : "alias:applicationTaskExecutor",
     "bootstrapExecutorAliasPostProcessor" : "org.springframework.beans.factory.config.BeanFactoryPostProcessor",
     "demoApplication" : "demo.DemoApplication",
     "fileWatcher" : "org.springframework.boot.autoconfigure.ssl.FileWatcher",
@@ -56,92 +57,92 @@
   },
   "conditions" : {
     "demo.DemoApplication#greetingService" : {
-      "OnPropertyCondition" : true
+      "org.springframework.boot.autoconfigure.condition.OnPropertyCondition" : true
     },
     "org.springframework.boot.autoconfigure.admin.SpringApplicationAdminJmxAutoConfiguration" : {
-      "OnPropertyCondition" : false
+      "org.springframework.boot.autoconfigure.condition.OnPropertyCondition" : false
     },
     "org.springframework.boot.autoconfigure.aop.AopAutoConfiguration" : {
-      "OnPropertyCondition" : true
+      "org.springframework.boot.autoconfigure.condition.OnPropertyCondition" : true
     },
     "org.springframework.boot.autoconfigure.aop.AopAutoConfiguration$AspectJAutoProxyingConfiguration" : {
-      "OnClassCondition" : false
+      "org.springframework.boot.autoconfigure.condition.OnClassCondition" : false
     },
     "org.springframework.boot.autoconfigure.aop.AopAutoConfiguration$ClassProxyingConfiguration" : {
-      "OnClassCondition" : true,
-      "OnPropertyCondition" : true
+      "org.springframework.boot.autoconfigure.condition.OnClassCondition" : true,
+      "org.springframework.boot.autoconfigure.condition.OnPropertyCondition" : true
     },
     "org.springframework.boot.autoconfigure.availability.ApplicationAvailabilityAutoConfiguration#applicationAvailability" : {
-      "OnBeanCondition" : true
+      "org.springframework.boot.autoconfigure.condition.OnBeanCondition" : true
     },
     "org.springframework.boot.autoconfigure.context.LifecycleAutoConfiguration#defaultLifecycleProcessor" : {
-      "OnBeanCondition" : true
+      "org.springframework.boot.autoconfigure.condition.OnBeanCondition" : true
     },
     "org.springframework.boot.autoconfigure.context.MessageSourceAutoConfiguration" : {
-      "ResourceBundleCondition" : false
+      "org.springframework.boot.autoconfigure.context.MessageSourceAutoConfiguration$ResourceBundleCondition" : false
     },
     "org.springframework.boot.autoconfigure.context.PropertyPlaceholderAutoConfiguration#propertySourcesPlaceholderConfigurer" : {
-      "OnBeanCondition" : true
+      "org.springframework.boot.autoconfigure.condition.OnBeanCondition" : true
     },
     "org.springframework.boot.autoconfigure.info.ProjectInfoAutoConfiguration#buildProperties" : {
-      "OnResourceCondition" : false
+      "org.springframework.boot.autoconfigure.condition.OnResourceCondition" : false
     },
     "org.springframework.boot.autoconfigure.info.ProjectInfoAutoConfiguration#gitProperties" : {
-      "GitResourceAvailableCondition" : false
+      "org.springframework.boot.autoconfigure.info.ProjectInfoAutoConfiguration$GitResourceAvailableCondition" : false
     },
     "org.springframework.boot.autoconfigure.jmx.JmxAutoConfiguration" : {
-      "OnClassCondition" : true,
-      "OnPropertyCondition" : false
+      "org.springframework.boot.autoconfigure.condition.OnClassCondition" : true,
+      "org.springframework.boot.autoconfigure.condition.OnPropertyCondition" : false
     },
     "org.springframework.boot.autoconfigure.ssl.SslAutoConfiguration#sslBundleRegistry" : {
-      "OnBeanCondition" : true
+      "org.springframework.boot.autoconfigure.condition.OnBeanCondition" : true
     },
     "org.springframework.boot.autoconfigure.task.TaskExecutionAutoConfiguration" : {
-      "OnClassCondition" : true
+      "org.springframework.boot.autoconfigure.condition.OnClassCondition" : true
     },
     "org.springframework.boot.autoconfigure.task.TaskExecutorConfigurations$AsyncConfigurerConfiguration" : {
-      "OnBeanCondition" : true
+      "org.springframework.boot.autoconfigure.condition.OnBeanCondition" : true
     },
     "org.springframework.boot.autoconfigure.task.TaskExecutorConfigurations$AsyncConfigurerWrapperConfiguration" : {
-      "OnBeanCondition" : false
+      "org.springframework.boot.autoconfigure.condition.OnBeanCondition" : false
     },
     "org.springframework.boot.autoconfigure.task.TaskExecutorConfigurations$SimpleAsyncTaskExecutorBuilderConfiguration#simpleAsyncTaskExecutorBuilder" : {
-      "OnBeanCondition" : true,
-      "OnThreadingCondition" : true
+      "org.springframework.boot.autoconfigure.condition.OnBeanCondition" : true,
+      "org.springframework.boot.autoconfigure.condition.OnThreadingCondition" : true
     },
     "org.springframework.boot.autoconfigure.task.TaskExecutorConfigurations$SimpleAsyncTaskExecutorBuilderConfiguration#simpleAsyncTaskExecutorBuilderVirtualThreads" : {
-      "OnBeanCondition" : false
+      "org.springframework.boot.autoconfigure.condition.OnBeanCondition" : false
     },
     "org.springframework.boot.autoconfigure.task.TaskExecutorConfigurations$TaskExecutorConfiguration" : {
-      "OnExecutorCondition" : true
+      "org.springframework.boot.autoconfigure.task.TaskExecutorConfigurations$OnExecutorCondition" : true
     },
     "org.springframework.boot.autoconfigure.task.TaskExecutorConfigurations$TaskExecutorConfiguration#applicationTaskExecutor" : {
-      "OnThreadingCondition" : true
+      "org.springframework.boot.autoconfigure.condition.OnThreadingCondition" : true
     },
     "org.springframework.boot.autoconfigure.task.TaskExecutorConfigurations$TaskExecutorConfiguration#applicationTaskExecutorVirtualThreads" : {
-      "OnThreadingCondition" : false
+      "org.springframework.boot.autoconfigure.condition.OnThreadingCondition" : false
     },
     "org.springframework.boot.autoconfigure.task.TaskExecutorConfigurations$ThreadPoolTaskExecutorBuilderConfiguration#threadPoolTaskExecutorBuilder" : {
-      "OnBeanCondition" : true
+      "org.springframework.boot.autoconfigure.condition.OnBeanCondition" : true
     },
     "org.springframework.boot.autoconfigure.task.TaskSchedulingAutoConfiguration" : {
-      "OnClassCondition" : true
+      "org.springframework.boot.autoconfigure.condition.OnClassCondition" : true
     },
     "org.springframework.boot.autoconfigure.task.TaskSchedulingAutoConfiguration#scheduledBeanLazyInitializationExcludeFilter" : {
-      "OnBeanCondition" : false
+      "org.springframework.boot.autoconfigure.condition.OnBeanCondition" : false
     },
     "org.springframework.boot.autoconfigure.task.TaskSchedulingConfigurations$SimpleAsyncTaskSchedulerBuilderConfiguration#simpleAsyncTaskSchedulerBuilder" : {
-      "OnBeanCondition" : true,
-      "OnThreadingCondition" : true
+      "org.springframework.boot.autoconfigure.condition.OnBeanCondition" : true,
+      "org.springframework.boot.autoconfigure.condition.OnThreadingCondition" : true
     },
     "org.springframework.boot.autoconfigure.task.TaskSchedulingConfigurations$SimpleAsyncTaskSchedulerBuilderConfiguration#simpleAsyncTaskSchedulerBuilderVirtualThreads" : {
-      "OnBeanCondition" : false
+      "org.springframework.boot.autoconfigure.condition.OnBeanCondition" : false
     },
     "org.springframework.boot.autoconfigure.task.TaskSchedulingConfigurations$TaskSchedulerConfiguration" : {
-      "OnBeanCondition" : false
+      "org.springframework.boot.autoconfigure.condition.OnBeanCondition" : false
     },
     "org.springframework.boot.autoconfigure.task.TaskSchedulingConfigurations$ThreadPoolTaskSchedulerBuilderConfiguration#threadPoolTaskSchedulerBuilder" : {
-      "OnBeanCondition" : true
+      "org.springframework.boot.autoconfigure.condition.OnBeanCondition" : true
     }
   }
 }

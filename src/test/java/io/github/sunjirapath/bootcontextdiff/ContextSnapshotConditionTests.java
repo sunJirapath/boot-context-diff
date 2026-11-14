@@ -28,6 +28,7 @@ import org.springframework.core.type.AnnotatedTypeMetadata;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ContextSnapshotConditionTests {
 
@@ -77,7 +78,7 @@ class ContextSnapshotConditionTests {
 			record(child, "Child", new SecondCondition(), true);
 			assertThat(ContextSnapshot.of(child).conditions())
 				.containsOnlyKeys("Child")
-				.containsEntry("Child", Map.of("SecondCondition", true));
+				.containsEntry("Child", Map.of(SecondCondition.class.getName(), true));
 		}
 	}
 
@@ -87,8 +88,8 @@ class ContextSnapshotConditionTests {
 			record(context, "demo.Config$$East#feature", new FirstCondition(), true);
 			record(context, "demo.Config$$West#feature", new FirstCondition(), false);
 			assertThat(ContextSnapshot.of(context).conditions())
-				.containsEntry("demo.Config$$East#feature", Map.of("FirstCondition", true))
-				.containsEntry("demo.Config$$West#feature", Map.of("FirstCondition", false));
+				.containsEntry("demo.Config$$East#feature", Map.of(FirstCondition.class.getName(), true))
+				.containsEntry("demo.Config$$West#feature", Map.of(FirstCondition.class.getName(), false));
 		}
 	}
 
@@ -130,7 +131,7 @@ class ContextSnapshotConditionTests {
 			record(context, "Source", new First$$East(), true);
 			record(context, "Source", new First$$West(), false);
 			assertThat(ContextSnapshot.of(context).conditions()).containsEntry("Source",
-					Map.of("First$$East", true, "First$$West", false));
+					Map.of(First$$East.class.getName(), true, First$$West.class.getName(), false));
 		}
 	}
 
@@ -141,7 +142,7 @@ class ContextSnapshotConditionTests {
 		Condition proxy = (Condition) factory.getProxy();
 		try (GenericApplicationContext context = context()) {
 			record(context, "Source", proxy, true);
-			assertThat(ContextSnapshot.of(context).conditions()).containsEntry("Source", Map.of("FirstCondition", true));
+			assertThat(ContextSnapshot.of(context).conditions()).containsEntry("Source", Map.of(FirstCondition.class.getName(), true));
 		}
 	}
 
@@ -151,19 +152,88 @@ class ContextSnapshotConditionTests {
 			record(context, "demo.Config$$SpringCGLIB$$10#one", new FirstCondition(), true);
 			record(context, "demo.Config$$SpringCGLIB$$11#two", new FirstCondition(), false);
 			assertThat(ContextSnapshot.of(context).conditions())
-				.containsEntry("demo.Config#one", Map.of("FirstCondition", true))
-				.containsEntry("demo.Config#two", Map.of("FirstCondition", false));
+				.containsEntry("demo.Config#one", Map.of(FirstCondition.class.getName(), true))
+				.containsEntry("demo.Config#two", Map.of(FirstCondition.class.getName(), false));
 		}
 	}
 
 	@Test
-	void duplicateSimpleConditionNamesUseLogicalAndInEitherOrder() {
+	void duplicateSimpleConditionNamesRetainIndependentOutcomesInEitherOrder() {
 		for (boolean reverse : new boolean[] { false, true }) {
 			try (GenericApplicationContext context = context()) {
 				record(context, "Source", new GroupA.SameName(), reverse);
 				record(context, "Source", new GroupB.SameName(), !reverse);
-				assertThat(ContextSnapshot.of(context).conditions()).containsEntry("Source", Map.of("SameName", false));
+				assertThat(ContextSnapshot.of(context).conditions()).containsEntry("Source",
+						Map.of(GroupA.SameName.class.getName(), reverse, GroupB.SameName.class.getName(), !reverse));
 			}
+		}
+	}
+
+	@Test
+	void unchangedFalseAggregateCannotHideDistinctConditionDrift() throws Exception {
+		Path baseline = dir.resolve("conditions.json");
+		try (GenericApplicationContext before = context(); GenericApplicationContext after = context()) {
+			record(before, "Source", new GroupA.SameName(), false);
+			record(before, "Source", new GroupB.SameName(), true);
+			ContextContract.write(before, baseline);
+			byte[] bytes = Files.readAllBytes(baseline);
+			record(after, "Source", new GroupA.SameName(), false);
+			record(after, "Source", new GroupB.SameName(), false);
+			assertThatThrownBy(() -> ContextContract.verify(after, baseline))
+				.isInstanceOf(AssertionError.class)
+				.hasMessageContaining("[" + GroupB.SameName.class.getName() + "]: matched -> not matched");
+			assertThat(Files.readAllBytes(baseline)).isEqualTo(bytes);
+		}
+	}
+
+	@Test
+	void legacyMergedConditionBaselineCannotPassAfterOneConditionDisappears() throws Exception {
+		Path baseline = dir.resolve("lossy.json");
+		String legacy = "{\"schemaVersion\":1,\"beans\":{},\"conditions\":{\"Source\":{\"SameName\":false}}}";
+		Files.writeString(baseline, legacy);
+		try (GenericApplicationContext context = context()) {
+			record(context, "Source", new GroupA.SameName(), false);
+			assertThatThrownBy(() -> ContextContract.verify(context, baseline))
+				.isInstanceOf(AssertionError.class).hasMessageContaining("CONDITION CHANGED");
+			assertThat(Files.readString(baseline)).isEqualTo(legacy);
+		}
+	}
+
+	@Test
+	void replacingConditionWithSameSimpleNameAndOutcomeIsDetected() {
+		try (GenericApplicationContext before = context(); GenericApplicationContext after = context()) {
+			record(before, "Source", new GroupA.SameName(), false);
+			record(after, "Source", new GroupB.SameName(), false);
+			assertThat(ContextSnapshot.of(before).diff(ContextSnapshot.of(after)))
+				.contains("CONDITION CHANGED Source [" + GroupA.SameName.class.getName() + "]: not matched -> not evaluated",
+						"CONDITION CHANGED Source [" + GroupB.SameName.class.getName() + "]: not evaluated -> not matched");
+		}
+	}
+
+	@Test
+	void repeatedConditionTypeWithDifferentOutcomesFailsClosed() {
+		try (GenericApplicationContext context = context()) {
+			record(context, "Source", new FirstCondition(), false);
+			record(context, "Source", new FirstCondition(), true);
+			assertThatThrownBy(() -> ContextSnapshot.of(context))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("colliding condition " + FirstCondition.class.getName());
+		}
+	}
+
+	@Test
+	void incompleteConditionAnalysisCannotVerifyOrOverwriteBaseline() throws Exception {
+		Path baseline = dir.resolve("keep.json");
+		try (GenericApplicationContext context = context()) {
+			record(context, "Source", new FirstCondition(), false);
+			ContextContract.write(context, baseline);
+			byte[] bytes = Files.readAllBytes(baseline);
+			record(context, "Source", new FirstCondition(), true);
+			assertThatThrownBy(() -> ContextContract.verify(context, baseline))
+				.isInstanceOf(IllegalStateException.class).hasMessageContaining("Incomplete condition analysis");
+			assertThatThrownBy(() -> ContextContract.write(context, baseline))
+				.isInstanceOf(IllegalStateException.class).hasMessageContaining("Incomplete condition analysis");
+			assertThat(Files.readAllBytes(baseline)).isEqualTo(bytes);
 		}
 	}
 
@@ -180,7 +250,7 @@ class ContextSnapshotConditionTests {
 				for (int i : evaluations) {
 					Condition condition = (i % 2 == 0) ? new FirstCondition() : new SecondCondition();
 					ConditionEvaluationReport.get(context.getBeanFactory()).recordConditionEvaluation(
-							"Source" + (i % 7), condition, new ConditionOutcome(i % 3 == 0, "secret-token-" + i));
+							"Source" + (i / 2), condition, new ConditionOutcome(i % 3 == 0, "secret-token-" + i));
 				}
 				Path baseline = dir.resolve(seed + ".json");
 				ContextContract.write(context, baseline);

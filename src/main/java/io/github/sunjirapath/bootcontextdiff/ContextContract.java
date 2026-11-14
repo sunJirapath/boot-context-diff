@@ -67,12 +67,13 @@ public final class ContextContract {
 	/**
 	 * Compares {@code context} with the baseline.
 	 * @throws AssertionError if the baseline is missing or differs; the baseline is left untouched
+	 * @throws IllegalStateException if types are unresolved or condition/alias identities collide
 	 */
 	public static void verify(ConfigurableApplicationContext context, Path baseline) {
 		verify(context, baseline, Map.of());
 	}
 
-	/** Verifies structure and caller-supplied checks; missing or changed checks also fail without touching the file. */
+	/** Verifies structure and supplied checks; incomplete type, condition or alias analysis fails closed. */
 	public static void verify(ConfigurableApplicationContext context, Path baseline, Map<String, Boolean> checks) {
 		if (Files.isDirectory(baseline)) {
 			throw new AssertionError("Baseline path " + baseline.toAbsolutePath() + " is a directory, not a file");
@@ -82,7 +83,12 @@ public final class ContextContract {
 					+ ". Generate it deliberately with ContextContract.write(context, path) and commit it.");
 		}
 		ContextSnapshot expected = read(baseline);
-		List<String> differences = expected.diff(ContextSnapshot.of(context, checks));
+		ContextSnapshot actual = ContextSnapshot.of(context, checks);
+		if (expected.beans().containsValue("?") || actual.beans().containsValue("?")) {
+			throw new IllegalStateException("Incomplete bean type analysis for baseline " + baseline.toAbsolutePath()
+					+ ": unresolved type '?'. Supply declared type metadata and regenerate deliberately.");
+		}
+		List<String> differences = expected.diff(actual);
 		if (!differences.isEmpty()) {
 			throw new AssertionError("ApplicationContext differs from baseline " + baseline.toAbsolutePath()
 					+ " (" + differences.size() + " difference(s)):\n" + String.join("\n", differences)
