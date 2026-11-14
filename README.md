@@ -1,8 +1,8 @@
 # boot-context-diff — fail the build when your Spring Boot context changes unexpectedly
 
 [![CI](https://github.com/sunJirapath/boot-context-diff/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sunJirapath/boot-context-diff/actions/workflows/ci.yml)
-![Java 21](https://img.shields.io/badge/Java-21-blue)
-![Spring Boot 4](https://img.shields.io/badge/Spring%20Boot-4-green)
+![Java 17 target](https://img.shields.io/badge/Java-17%20target-blue)
+![Spring Boot fixtures](https://img.shields.io/badge/Spring%20Boot%20fixtures-3.5.16%20%7C%204.0.9-green)
 ![Maven](https://img.shields.io/badge/Maven-supported-blue)
 ![Gradle](https://img.shields.io/badge/Gradle-Groovy%20%26%20Kotlin%20DSL-blue)
 
@@ -160,23 +160,29 @@ regenerate them with this implementation before adoption.
 
 ### Compatibility
 
-- Java 21, Spring Boot 4.0.9, Spring Framework 7. Uses Jackson 3 (`tools.jackson`). The library and consumer fixtures
-  target only Boot 4.0.9. Other 4.0 patches and Boot 4.1 are unverified; no cross-version compatibility is claimed.
-  Run external Maven and Gradle consumers against each intended Boot/Jackson combination before relying on its gate.
-- **Test-classpath influence:** `jackson-databind` is a required transitive dependency of this library, bringing Jackson 3
-  onto the consumer's test classpath. It can enable `@ConditionalOnClass` branches absent in production. The snapshot
-  describes the test context, not verified production-classpath parity. A Jackson-2-only production context is not
-  verified by these examples; adding the verifier can change it. Jackson 2 and 3 use different packages and can coexist.
-  Do not exclude Jackson 3 to hide this effect: `ContextContract` needs it to read/write JSON. For a production-context
-  guard, first establish that the application already uses the same Jackson 3 runtime dependencies, or treat that
-  coverage as incomplete. Consumer Maven dependency management or Gradle conflict resolution can change the selected
-  Jackson version. This POM's Boot parent manages this library's build; consumers do not inherit that parent.
-- Maven, Gradle Groovy DSL and Gradle Kotlin DSL each have a runnable example, built in CI on Linux and Windows.
-- **Spring Boot 3.5 is not verified and not claimed.** The baseline format (`schemaVersion: 1`) does not mention Boot or
-  Framework versions, so a baseline is just data. To compare against a 3.5 application, either generate the baseline
-  by running this library against a 3.5 context (untested: the library is compiled against Boot 4), or write the JSON by hand
-  following the schema in [`examples/shared/context-baseline.json`](examples/shared/context-baseline.json).
-  Expect bean-type and condition differences between 3.5 and 4.0; those are exactly what you are meant to review.
+- One artifact, configured for Java 17 bytecode. CI builds the library against Boot 4.0.9 / Spring Framework 7 with JDK 21;
+  the Boot 4.0.9 Maven and Gradle consumer fixtures use JDK 21 and Jackson 3 (`tools.jackson`).
+  The Boot 3.5.16 Maven fixture targets JDK 17, Spring Framework 6 and Jackson 2 (`com.fasterxml.jackson`).
+  **Evidence status:** the Boot 3.5.16 fixture and cross-codec tests are added but have not been executed in this
+  implementation session. Compilation and passing compatibility gates remain unverified until current CI reports
+  show success; this is not a claim of verified full Spring Boot 3 support. Fixture versions are exactly 3.5.16 and 4.0.9.
+  No Boot 3.0–3.4, other 3.5 patches, Boot 2.x or cross-major baseline portability is claimed.
+  Other 4.0 patches and Boot 4.1 are unverified. Only the configurations exercised by passing tests are covered.
+- JSON codecs are internal; the snapshot model has no Jackson annotations or types. Jackson dependencies are
+  optional/provided, so neither generation is brought onto a consumer's classpath transitively. The consumer must
+  supply `jackson-databind` (see Installation). Jackson 3 is selected when present, including when both generations
+  coexist; otherwise Jackson 2 is selected. Neither present fails JSON I/O, and a broken Jackson 3 installation fails
+  rather than silently falling back. Schema 1 and 2 field order, LF pretty printing and strict parsing are covered by
+  `JsonCodecTests`: unknown fields, scalar coercion, duplicate keys, trailing tokens and invalid schema/check sections
+  are rejected. Each codec uses its Jackson generation's default read limits; there is no whole-file size limit
+  (the baseline is read into memory).
+- **Test-classpath influence:** explicitly adding a Jackson dependency can still enable `@ConditionalOnClass` branches
+  absent in production. The snapshot describes the test context, not verified production-classpath parity. Use the
+  same Jackson runtime as the application, or treat that coverage as incomplete. Consumer dependency management can
+  change the selected Jackson version; consumers do not inherit this library's Boot parent. The existing Boot 4
+  classpath probe remains; the Boot 3 consumer additionally asserts that Jackson 3 is absent and Jackson 2 is present.
+- CI retains Boot 4.0.9 Maven, Gradle Groovy and Gradle Kotlin fixtures on Linux/Windows with JDK 21, and adds a
+  separate Boot 3.5.16 Maven consumer on Linux with JDK 17. Boot 3 Gradle and Windows execution are not covered.
 
 ### Installation
 
@@ -203,6 +209,11 @@ Maven (test scope):
   <scope>test</scope>
 </dependency>
 ```
+
+Also supply the Jackson generation already used by your application. With the consumer's Boot BOM managing versions,
+add a test-scoped `com.fasterxml.jackson.core:jackson-databind` for the Boot 3.5.16 fixture, or
+`tools.jackson.core:jackson-databind` for Boot 4.0.9. Gradle uses the same coordinates with `testImplementation`.
+No extra dependency is needed if that generation is already present. The library no longer supplies Jackson transitively.
 
 Run the Maven consumer with `./mvnw verify -Dmaven.repo.local="$CONTEXT_CONTRACT_REPOSITORY"` so it uses the same
 isolated repository as the bootstrap, rather than an unrelated artifact from the default `~/.m2/repository`.
@@ -255,7 +266,8 @@ jobs:
 For a Gradle consumer, keep the source checkout and Maven install steps and replace the last command with
 `./gradlew test -PcontextContractRepository="$CONTEXT_CONTRACT_REPOSITORY"`; use the exclusive repository block above.
 Each runner needs a fresh bootstrap; do not restore a cached source-built artifact into this repository.
-Java 21 and network access to dependency repositories are required.
+Use Java 21 for source bootstrap as configured in CI, with network access to dependency repositories. The JAR targets Java 17;
+the Boot 3.5.16 consumer runs with Java 17, while the Boot 4.0.9 examples use Java 21.
 
 ### Updating the baseline
 
@@ -288,16 +300,26 @@ Snapshot the same kind of context you verify.
 
 ### Runnable examples
 
-One fixture ([`examples/shared`](examples/shared): a tiny `@SpringBootApplication`, consumer tests and one committed
-baseline) is built by all three examples. Each demonstrates a successful verify on the unchanged context, a failing
+One Boot 4.0.9 fixture ([`examples/shared`](examples/shared): a tiny `@SpringBootApplication`, consumer tests and one committed
+baseline) is built by the three Boot 4 examples. Each demonstrates a successful verify on the unchanged context, a failing
 verify after a meaningful change (`demo.greeting.enabled=false`) that leaves the baseline untouched, and byte-identical
 deterministic output. A separate consumer classpath probe demonstrates that Jackson 3 can enable an application bean;
-filtering Jackson 3 out of that probe disables the bean. This does not establish Jackson-2-only production parity.
+filtering Jackson 3 out of that probe disables the bean. This does not establish production-classpath parity.
+
+[`examples/maven-boot3`](examples/maven-boot3) pins Boot 3.5.16 and supplies only Jackson 2. It reuses the demo bean,
+the library's behavioral regression tests (including FactoryBean/ResolvableType, aliases, conditions, strict baseline
+validation and named checks), and the shared mock/dynamic-property fixture. Documentation tests and the two-generation
+codec parity test stay in the root build. Its committed baseline describes an explicitly registered greeting bean in a
+`GenericApplicationContext`; every expected entry follows from that registration. It does not pretend to be the Boot 3
+auto-configuration graph. A separate test starts the shared Boot application configuration twice, verifies an independent
+temporary capture, then disables the greeting and checks both bean and condition drift without changing the capture.
+Neither fixture promises a baseline shared across Boot majors. Normal runs never regenerate committed baselines.
 
 | Example | Command | Coverage scope |
 |---|---|---|
 | Library | `./mvnw install -Dmaven.repo.local="$CONTEXT_CONTRACT_REPOSITORY"` | Library suite |
 | [Maven](examples/maven) | `(cd examples/maven && ./mvnw clean verify -Dmaven.repo.local="$CONTEXT_CONTRACT_REPOSITORY")` | Shared consumer suite |
+| [Maven, Boot 3.5.16](examples/maven-boot3) | `./mvnw -f examples/maven-boot3/pom.xml clean verify -Dmaven.repo.local="$CONTEXT_CONTRACT_REPOSITORY"` (JDK 17) | Boot 3 fixture and reused behavioral regressions |
 | [Gradle, Groovy DSL](examples/gradle-groovy) | `(cd examples/gradle-groovy && ./gradlew clean test -PcontextContractRepository="$CONTEXT_CONTRACT_REPOSITORY")` | Shared consumer suite |
 | [Gradle, Kotlin DSL](examples/gradle-kotlin) | `(cd examples/gradle-kotlin && ./gradlew clean test -PcontextContractRepository="$CONTEXT_CONTRACT_REPOSITORY")` | Shared consumer suite |
 
@@ -308,7 +330,13 @@ absolute path in the same shell. Regenerate the shared baseline with any one of 
 (cd examples/maven && UPDATE_CONTEXT_BASELINE=true ./mvnw test -Dmaven.repo.local="$CONTEXT_CONTRACT_REPOSITORY")
 (cd examples/gradle-groovy && UPDATE_CONTEXT_BASELINE=true ./gradlew test -PcontextContractRepository="$CONTEXT_CONTRACT_REPOSITORY")
 (cd examples/gradle-kotlin && UPDATE_CONTEXT_BASELINE=true ./gradlew test -PcontextContractRepository="$CONTEXT_CONTRACT_REPOSITORY")
+# Separate Boot 3 baseline (JDK 17); the root Maven wrapper selects the consumer POM.
+UPDATE_CONTEXT_BASELINE=true ./mvnw -f examples/maven-boot3/pom.xml test -Dmaven.repo.local="$CONTEXT_CONTRACT_REPOSITORY"
 ```
+
+The Boot 3 Maven fixture requires `maven.repo.local` and the already-installed library JAR/POM there at validation time;
+a missing source-built artifact fails before consumer tests instead of resolving a replacement from Central. This checks
+presence, not provenance: use the fresh repository and reviewed source revision required by Installation.
 
 **Fixture coverage:** the shared tests include `@MockitoBean`, a `@DynamicPropertySource` endpoint supplier whose value
 changes, and separate baselines for full versus selected configuration sets. Mock behavior and dynamic endpoint values
@@ -341,12 +369,13 @@ the consuming application. A selected configuration set is not evidence of real 
 - Snapshot a stable context after startup. Concurrent context/report mutation and simultaneous writes to the same baseline
   file are not supported. Explicit writes are not transactional; retain the committed baseline if a write is interrupted.
 - Not published to Maven Central.
-- Boot 3.5 is untested (see Compatibility).
+- Boot 3 coverage is limited to the 3.5.16 fixture once its current CI gates pass (see Compatibility).
 
 ### Build and contribute
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (workflow `ci`, on push and pull request) builds the library and all
-three examples on Linux and Windows (JDK 21 Temurin) and then fails if the shared baseline file changed
+three Boot 4.0.9 examples on Linux and Windows (JDK 21 Temurin), plus a Boot 3.5.16 Maven consumer on Linux (JDK 17),
+and then fails if the committed baseline files changed
 (`git diff --exit-code`). Run the same steps locally with the commands in [Runnable examples](#runnable-examples).
 
 **Review artifacts:** the library puts the complete diff in the assertion message; it does not emit a dedicated diff
@@ -418,12 +447,15 @@ auto-configuration เปลี่ยนโดยไม่มีอะไรล�
 
 ### ความเข้ากันได้
 
-- Java 21, Spring Boot 4.0.9, Spring Framework 7 และ Jackson 3 (`tools.jackson`); fixture ครอบคลุมเฉพาะ 4.0.9
-  ยังไม่ยืนยัน patch อื่นหรือ Boot 4.1 ต้องทดสอบ consumer แยกก่อนใช้เป็น gate
-- ไลบรารีเพิ่ม Jackson 3 ใน test classpath จึงอาจทำให้ `@ConditionalOnClass` ต่างจาก production ที่มีเฉพาะ Jackson 2
-  snapshot ยืนยันเฉพาะ test context ไม่รับรองว่าเหมือน production ต้องตรวจ dependency ให้ตรงกันก่อนใช้เป็น production guard
-  ห้าม exclude Jackson 3 เพราะ `ContextContract` ต้องใช้ ดูรายละเอียด Test-classpath influence ใน Compatibility ด้านบน
-- **ยังไม่ได้ตรวจสอบและไม่ได้รับรองว่ารองรับ Spring Boot 3.5** รายละเอียดอยู่ในหัวข้อ Compatibility ด้านบน
+- JAR เดียวใช้ bytecode Java 17; build ไลบรารีด้วย JDK 21 บน Boot 4.0.9 / Spring Framework 7
+  fixture Boot 4.0.9 ใช้ Java 21 และ Jackson 3; เพิ่ม Maven fixture สำหรับ Boot 3.5.16 / Spring Framework 6 / Java 17 / Jackson 2
+  **สถานะหลักฐาน:** ยังไม่ได้รัน fixture Boot 3.5.16 หรือ cross-codec tests ในรอบนี้ ต้องรอผล CI ปัจจุบันก่อนรับรอง
+  ไม่อ้างว่ารองรับ Boot 3 ทั้งหมด, 3.0–3.4, patch 3.5 อื่น, Boot 2.x, patch 4.0 อื่น หรือ Boot 4.1
+- Jackson ทั้งสองชุดเป็น optional/provided ผู้ใช้ต้องมี `jackson-databind` ของแอปเอง ไม่ได้เพิ่มให้อัตโนมัติ
+  หากมีทั้งสองชุดจะเลือก Jackson 3; มีเฉพาะ Jackson 2 จะใช้ Jackson 2; ไม่มีหรือ dependency เสียจะ fail closed
+  snapshot ไม่มี Jackson annotation; ทดสอบ JSON bytes และ strict parsing เทียบกันใน `JsonCodecTests` โดยยังไม่ได้รัน
+- การเพิ่ม Jackson เองอาจทำให้ `@ConditionalOnClass` ต่างจาก production ต้องตรวจ classpath ให้ตรงกัน
+  CI เพิ่ม Boot 3.5.16 เฉพาะ Maven/Linux/Java 17; ไม่อ้าง Boot 3 บน Gradle หรือ Windows
 
 ### ตัวอย่างที่รันได้
 
@@ -431,6 +463,9 @@ auto-configuration เปลี่ยนโดยไม่มีอะไรล�
 (โฟลเดอร์ [`examples/shared`](examples/shared)) ให้ bootstrap จาก source revision ที่อนุมัติลง repository แยกตาม Installation
 และส่ง path เดียวกันให้ Maven/Gradle ตามคำสั่งใน Runnable examples ด้านบน ห้ามใช้ local artifact คนละ revision ปะปนกัน
 สร้าง baseline ด้วยคำสั่งแยกตามโฟลเดอร์ในหัวข้อนั้น: Maven ใช้ `./mvnw` ส่วนสองตัวอย่าง Gradle ใช้ `./gradlew`
+เพิ่ม [`examples/maven-boot3`](examples/maven-boot3) โดยใช้ root wrapper กับ `-f examples/maven-boot3/pom.xml`
+และ repository แยกเดียวกับที่ติดตั้งไลบรารี baseline แยกจาก Boot 4 และอิง bean ที่ลงทะเบียนชัดเจนในโค้ด
+มีเทสต์ Boot auto-configuration แยกและ reuse regression tests เดิม ไม่ใช้ baseline ข้าม Boot major
 
 ### ข้อจำกัด
 
@@ -446,7 +481,7 @@ auto-configuration เปลี่ยนโดยไม่มีอะไรล�
 - fixture ยังไม่ครอบคลุม Testcontainers จริง, Boot web/data slices หรือ context-cache lifecycle matrix; ดู Fixture coverage
 - diff อยู่ใน assertion message ไม่มีไฟล์ diff แยก; CI เก็บ test reports แม้ fail โดยไม่มี coverage/mutation threshold
 - ให้ snapshot หลัง context เริ่มทำงานเสร็จและหยุดเปลี่ยนแปลง ไม่รองรับการแก้ context/report ระหว่างอ่าน หรือเขียน baseline เดียวกันพร้อมกัน
-- ยังไม่ได้เผยแพร่ขึ้น Maven Central และยังไม่ได้ทดสอบกับ Spring Boot 3.5
+- ยังไม่ได้เผยแพร่ขึ้น Maven Central; fixture ใหม่ pin Boot 3.5.16 แต่ยังไม่มีผลรันในรอบนี้ (ดู Compatibility)
 
 ### สัญญาอนุญาต
 

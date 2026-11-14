@@ -9,17 +9,6 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
-import tools.jackson.core.JacksonException;
-import tools.jackson.core.StreamReadFeature;
-import tools.jackson.core.util.DefaultIndenter;
-import tools.jackson.core.util.DefaultPrettyPrinter;
-import tools.jackson.databind.DeserializationFeature;
-import tools.jackson.databind.MapperFeature;
-import tools.jackson.databind.cfg.CoercionAction;
-import tools.jackson.databind.cfg.CoercionInputShape;
-import tools.jackson.databind.json.JsonMapper;
-import tools.jackson.databind.type.LogicalType;
-
 import org.springframework.context.ConfigurableApplicationContext;
 
 /**
@@ -28,20 +17,9 @@ import org.springframework.context.ConfigurableApplicationContext;
  */
 public final class ContextContract {
 
-	private static final JsonMapper MAPPER = JsonMapper.builder()
-		.enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
-		.enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-		.disable(MapperFeature.ALLOW_COERCION_OF_SCALARS)
-		.disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT)
-		.withCoercionConfig(LogicalType.Textual, (config) -> config
-			.setCoercion(CoercionInputShape.Integer, CoercionAction.Fail)
-			.setCoercion(CoercionInputShape.Float, CoercionAction.Fail)
-			.setCoercion(CoercionInputShape.Boolean, CoercionAction.Fail))
-		.build();
-
-	// Fixed "\n" so a baseline written on Windows is byte-identical to one written on Linux.
-	private static final DefaultPrettyPrinter PRINTER = new DefaultPrettyPrinter()
-		.withObjectIndenter(new DefaultIndenter("  ", "\n"));
+	private static final class CodecHolder {
+		private static final JsonCodec CODEC = JsonCodec.select(JsonCodec.class.getClassLoader());
+	}
 
 	private ContextContract() {
 	}
@@ -53,7 +31,7 @@ public final class ContextContract {
 
 	/** Writes structure plus named boolean checks evaluated by the caller, such as feature flags or HTTP probes. */
 	public static void write(ConfigurableApplicationContext context, Path baseline, Map<String, Boolean> checks) {
-		String json = MAPPER.writer().with(PRINTER).writeValueAsString(ContextSnapshot.of(context, checks)) + "\n";
+		String json = CodecHolder.CODEC.write(ContextSnapshot.of(context, checks));
 		try {
 			if (baseline.toAbsolutePath().getParent() != null) {
 				Files.createDirectories(baseline.toAbsolutePath().getParent());
@@ -111,34 +89,14 @@ public final class ContextContract {
 			// strict decode: invalid UTF-8 must fail here, not become U+FFFD and a confusing diff
 			String json = StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString();
 			// Windows editors (Notepad, PowerShell redirects) prepend a BOM that Jackson rejects
-			snapshot = MAPPER.readValue(json.startsWith("﻿") ? json.substring(1) : json, ContextSnapshot.class);
+			snapshot = CodecHolder.CODEC.read(json.startsWith("﻿") ? json.substring(1) : json);
 		}
 		catch (IOException ex) {
 			throw new UncheckedIOException("Cannot read baseline " + baseline, ex);
 		}
-		catch (JacksonException ex) {
+		catch (IllegalArgumentException ex) {
 			throw new IllegalStateException("Baseline " + baseline + " is not a valid context baseline: "
-					+ ex.getOriginalMessage(), ex);
-		}
-		if (snapshot == null) {
-			throw new IllegalStateException("Baseline " + baseline + " is empty");
-		}
-		if (snapshot.schemaVersion() != ContextSnapshot.SCHEMA_VERSION
-				&& snapshot.schemaVersion() != ContextSnapshot.CHECKS_SCHEMA_VERSION) {
-			throw new IllegalStateException("Baseline " + baseline + " has schemaVersion " + snapshot.schemaVersion()
-					+ ", this library reads " + ContextSnapshot.SCHEMA_VERSION + " and " + ContextSnapshot.CHECKS_SCHEMA_VERSION);
-		}
-		if ((snapshot.schemaVersion() == ContextSnapshot.CHECKS_SCHEMA_VERSION && snapshot.checks().isEmpty())
-				|| (snapshot.schemaVersion() == ContextSnapshot.SCHEMA_VERSION && !snapshot.checks().isEmpty())) {
-			throw new IllegalStateException("Baseline " + baseline + " schemaVersion " + snapshot.schemaVersion()
-					+ " requires non-empty checks only for schemaVersion " + ContextSnapshot.CHECKS_SCHEMA_VERSION);
-		}
-		if (snapshot.beans() == null || snapshot.conditions() == null) {
-			throw new IllegalStateException("Baseline " + baseline + " lacks its \"beans\" or \"conditions\" section");
-		}
-		if (snapshot.beans().containsValue(null) || snapshot.conditions().values()
-			.stream().anyMatch((outcomes) -> outcomes == null || outcomes.containsValue(null))) {
-			throw new IllegalStateException("Baseline " + baseline + " contains a null entry");
+					+ ex.getMessage(), ex);
 		}
 		return snapshot;
 	}

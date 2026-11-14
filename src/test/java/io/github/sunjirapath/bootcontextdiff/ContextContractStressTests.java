@@ -26,26 +26,32 @@ class ContextContractStressTests {
 
 	@Test
 	void concurrentIndependentContractsHaveIdenticalBytesAndDoNotSharePrinterState() throws Exception {
-		try (var context = new GenericApplicationContext(); var executor = Executors.newFixedThreadPool(8)) {
-			context.registerBean("service", String.class, () -> "private-value");
-			context.refresh();
-			Path reference = dir.resolve("reference.json");
-			ContextContract.write(context, reference);
-			byte[] expected = Files.readAllBytes(reference);
-			List<Callable<Void>> tasks = new ArrayList<>();
-			for (int worker = 0; worker < 16; worker++) {
-				Path baseline = dir.resolve("worker-" + worker + ".json");
-				tasks.add(() -> {
-					for (int iteration = 0; iteration < 20; iteration++) {
-						ContextContract.write(context, baseline);
-						ContextContract.verify(context, baseline);
-						assertThat(Files.readAllBytes(baseline)).isEqualTo(expected);
-					}
-					return null;
-				});
-			}
-			for (var result : executor.invokeAll(tasks, 30, TimeUnit.SECONDS)) {
-				result.get();
+		try (var context = new GenericApplicationContext()) {
+			var executor = Executors.newFixedThreadPool(8);
+			try {
+				context.registerBean("service", String.class, () -> "private-value");
+				context.refresh();
+				Path reference = dir.resolve("reference.json");
+				ContextContract.write(context, reference);
+				byte[] expected = Files.readAllBytes(reference);
+				List<Callable<Void>> tasks = new ArrayList<>();
+				for (int worker = 0; worker < 16; worker++) {
+					Path baseline = dir.resolve("worker-" + worker + ".json");
+					tasks.add(() -> {
+						for (int iteration = 0; iteration < 20; iteration++) {
+							ContextContract.write(context, baseline);
+							ContextContract.verify(context, baseline);
+							assertThat(Files.readAllBytes(baseline)).isEqualTo(expected);
+						}
+						return null;
+					});
+				}
+				for (var result : executor.invokeAll(tasks, 30, TimeUnit.SECONDS)) {
+					result.get();
+				}
+			} finally {
+				executor.shutdownNow();
+				executor.awaitTermination(30, TimeUnit.SECONDS);
 			}
 		}
 	}

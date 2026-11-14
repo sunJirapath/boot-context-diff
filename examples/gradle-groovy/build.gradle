@@ -26,6 +26,7 @@ dependencies {
 	implementation platform('org.springframework.boot:spring-boot-dependencies:4.0.9')
 	implementation 'org.springframework.boot:spring-boot-starter'
 	testImplementation 'io.github.sunjirapath.bootcontextdiff:boot-context-diff:0.1.0'
+	testImplementation 'tools.jackson.core:jackson-databind'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }

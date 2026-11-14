@@ -11,8 +11,6 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
-
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.config.BeanDefinition;
@@ -35,7 +33,7 @@ import org.springframework.util.ClassUtils;
  */
 public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 		Map<String, Map<String, Boolean>> conditions,
-		@JsonInclude(JsonInclude.Include.NON_EMPTY) Map<String, Boolean> checks) {
+		Map<String, Boolean> checks) {
 
 	public ContextSnapshot {
 		checks = checks == null ? Map.of() : Collections.unmodifiableMap(new TreeMap<>(checks));
