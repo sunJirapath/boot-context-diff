@@ -116,6 +116,15 @@ class ContextSnapshotConditionTests {
 	}
 
 	@Test
+	void jdkProxyConditionKeyIsTheSortedInterfaceList() {
+		try (GenericApplicationContext context = context()) {
+			record(context, "Source", proxyCondition(Condition.class.getClassLoader()), true);
+			assertThat(ContextSnapshot.of(context).conditions())
+				.containsEntry("Source", Map.of("proxy[" + Condition.class.getName() + "]", true));
+		}
+	}
+
+	@Test
 	void legitimateDollarSignsInConditionClassNamesRemainDistinct() {
 		try (GenericApplicationContext context = context()) {
 			record(context, "Source", new First$$East(), true);

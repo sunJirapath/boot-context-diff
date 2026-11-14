@@ -105,6 +105,21 @@ class ContextContractValidationTests {
 		assertThat(Files.readAllBytes(baseline)).isEqualTo(bytes);
 	}
 
+	@ParameterizedTest
+	@MethodSource("utf16ByteOrderMarks")
+	void utf16ByteOrderMarksAreNamedInTheError(byte[] bom) throws Exception {
+		Path baseline = dir.resolve("utf16.json");
+		Files.write(baseline, bom);
+		try (GenericApplicationContext context = new GenericApplicationContext()) {
+			assertThatThrownBy(() -> ContextContract.verify(context, baseline))
+				.isInstanceOf(IllegalStateException.class).hasMessageContaining("is UTF-16");
+		}
+	}
+
+	static List<byte[]> utf16ByteOrderMarks() {
+		return List.of(new byte[] { (byte) 0xFF, (byte) 0xFE }, new byte[] { (byte) 0xFE, (byte) 0xFF });
+	}
+
 	static List<byte[]> invalidEncodings() {
 		return List.of(new byte[] { (byte) 0xFE, (byte) 0xFF },
 				new byte[] { (byte) 0xFF, 0 }, new byte[] { (byte) 0xFE, 0 },
