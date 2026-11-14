@@ -30,6 +30,7 @@ public final class ContextContract {
 
 	private static final JsonMapper MAPPER = JsonMapper.builder()
 		.enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+		.enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
 		.disable(MapperFeature.ALLOW_COERCION_OF_SCALARS)
 		.disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT)
 		.withCoercionConfig(LogicalType.Textual, (config) -> config
@@ -90,6 +91,7 @@ public final class ContextContract {
 		}
 		List<String> differences = expected.diff(actual);
 		if (!differences.isEmpty()) {
+			// FINDING: No diff output-path API; retain full assertion output in test reports (README Review artifacts).
 			throw new AssertionError("ApplicationContext differs from baseline " + baseline.toAbsolutePath()
 					+ " (" + differences.size() + " difference(s)):\n" + String.join("\n", differences)
 					+ "\nA difference is not necessarily a bug (dependency upgrades and config changes do this). "

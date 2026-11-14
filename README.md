@@ -1,8 +1,6 @@
 # boot-context-diff — fail the build when your Spring Boot context changes unexpectedly
 
 [![CI](https://github.com/sunJirapath/boot-context-diff/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sunJirapath/boot-context-diff/actions/workflows/ci.yml)
-![Line coverage (2026-10-30 audit)](https://img.shields.io/badge/audit%20lines-100%25-brightgreen)
-![Branch coverage (2026-10-30 audit)](https://img.shields.io/badge/audit%20branches-99.1%25-brightgreen)
 ![Java 21](https://img.shields.io/badge/Java-21-blue)
 ![Spring Boot 4](https://img.shields.io/badge/Spring%20Boot-4-green)
 ![Maven](https://img.shields.io/badge/Maven-supported-blue)
@@ -41,16 +39,27 @@ a small committed JSON file and fails a test with a readable diff when the struc
 @SpringBootTest
 class ContextContractTest {
 
-    static final Path BASELINE = Path.of("src/test/resources/context-baseline.json");
+    static final Path BASELINE = Path.of(System.getProperty("context.baseline", ""));
 
     @Autowired ConfigurableApplicationContext context;
 
     @Test
     void contextMatchesBaseline() {
+        assertTrue(BASELINE.isAbsolute(), "Set -Dcontext.baseline to the absolute baseline path");
         ContextContract.verify(context, BASELINE);   // throws AssertionError with the diff
     }
 }
 ```
+
+**Baseline ownership:** relative paths resolve against the JVM working directory, which may be the module, repository
+root or an IDE-selected directory. Supply the same module-specific absolute path to both write and verify. For Maven,
+configure Surefire's `systemPropertyVariables` with
+`<context.baseline>${project.basedir}/src/test/resources/context-baseline.json</context.baseline>`. For Gradle Test, use
+`systemProperty("context.baseline", layout.projectDirectory.file("src/test/resources/context-baseline.json").asFile.absolutePath)`.
+In an IDE, set `-Dcontext.baseline=/absolute/path/to/module/src/test/resources/context-baseline.json` in the test JVM
+options. Each module owns its baseline; do not anchor it to `maven.multiModuleProjectDirectory` or the repository root.
+The examples configure an absolute path to their deliberately shared fixture baseline and reject missing/relative IDE
+configuration before writing. The library continues to accept relative paths for callers that control their working directory.
 
 The contract API is two static methods, each with an optional `Map<String, Boolean> checks` argument:
 
@@ -104,7 +113,8 @@ check name and boolean result are stored. Omitted checks fail verification; chec
 - **Failure messages** name the baseline file. An empty, non-JSON, partial or wrong-`schemaVersion` baseline fails with a
   clear `IllegalStateException` rather than a `NullPointerException`; an unreadable file raises `UncheckedIOException`.
   Duplicate JSON keys and values of the wrong JSON type are rejected; strings/numbers are never coerced into booleans,
-  and fractional or quoted schema versions are rejected.
+  and fractional or quoted schema versions are rejected. Unknown top-level JSON fields are rejected with
+  `IllegalStateException`; null bean entries, condition sections and condition outcomes also raise `IllegalStateException`.
 
 ### Baseline format
 
@@ -150,7 +160,9 @@ regenerate them with this implementation before adoption.
 
 ### Compatibility
 
-- Java 21, Spring Boot 4.0.x (built and tested against 4.0.9), Spring Framework 7. Uses Jackson 3 (`tools.jackson`).
+- Java 21, Spring Boot 4.0.9, Spring Framework 7. Uses Jackson 3 (`tools.jackson`). The library and consumer fixtures
+  target only Boot 4.0.9. Other 4.0 patches and Boot 4.1 are unverified; no cross-version compatibility is claimed.
+  Run external Maven and Gradle consumers against each intended Boot/Jackson combination before relying on its gate.
 - **Test-classpath influence:** `jackson-databind` is a required transitive dependency of this library, bringing Jackson 3
   onto the consumer's test classpath. It can enable `@ConditionalOnClass` branches absent in production. The snapshot
   describes the test context, not verified production-classpath parity. A Jackson-2-only production context is not
@@ -253,6 +265,8 @@ Baseline generation is explicit. Run once, review the file, commit it:
 ContextContract.write(context, BASELINE);   // never called by verify
 ```
 
+Use the same absolute `BASELINE` configured in Quick start, including during IDE regeneration.
+
 The examples gate this on an environment variable so the normal test run can never rewrite the baseline.
 After a failure, read the diff first; regenerate only if the change is intended, and review the baseline's own diff in
 the pull request. Use the directory-specific commands in [Runnable examples](#runnable-examples).
@@ -274,18 +288,18 @@ Snapshot the same kind of context you verify.
 
 ### Runnable examples
 
-One fixture ([`examples/shared`](examples/shared): a tiny `@SpringBootApplication`, two test classes and one committed
+One fixture ([`examples/shared`](examples/shared): a tiny `@SpringBootApplication`, consumer tests and one committed
 baseline) is built by all three examples. Each demonstrates a successful verify on the unchanged context, a failing
 verify after a meaningful change (`demo.greeting.enabled=false`) that leaves the baseline untouched, and byte-identical
 deterministic output. A separate consumer classpath probe demonstrates that Jackson 3 can enable an application bean;
 filtering Jackson 3 out of that probe disables the bean. This does not establish Jackson-2-only production parity.
 
-| Example | Command | Tests |
+| Example | Command | Coverage scope |
 |---|---|---|
-| Library | `./mvnw install -Dmaven.repo.local="$CONTEXT_CONTRACT_REPOSITORY"` | 126 |
-| [Maven](examples/maven) | `(cd examples/maven && ./mvnw clean verify -Dmaven.repo.local="$CONTEXT_CONTRACT_REPOSITORY")` | 4 |
-| [Gradle, Groovy DSL](examples/gradle-groovy) | `(cd examples/gradle-groovy && ./gradlew clean test -PcontextContractRepository="$CONTEXT_CONTRACT_REPOSITORY")` | 4 |
-| [Gradle, Kotlin DSL](examples/gradle-kotlin) | `(cd examples/gradle-kotlin && ./gradlew clean test -PcontextContractRepository="$CONTEXT_CONTRACT_REPOSITORY")` | 4 |
+| Library | `./mvnw install -Dmaven.repo.local="$CONTEXT_CONTRACT_REPOSITORY"` | Library suite |
+| [Maven](examples/maven) | `(cd examples/maven && ./mvnw clean verify -Dmaven.repo.local="$CONTEXT_CONTRACT_REPOSITORY")` | Shared consumer suite |
+| [Gradle, Groovy DSL](examples/gradle-groovy) | `(cd examples/gradle-groovy && ./gradlew clean test -PcontextContractRepository="$CONTEXT_CONTRACT_REPOSITORY")` | Shared consumer suite |
+| [Gradle, Kotlin DSL](examples/gradle-kotlin) | `(cd examples/gradle-kotlin && ./gradlew clean test -PcontextContractRepository="$CONTEXT_CONTRACT_REPOSITORY")` | Shared consumer suite |
 
 Run the library bootstrap from [Installation](#installation) first and keep `CONTEXT_CONTRACT_REPOSITORY` set to its
 absolute path in the same shell. Regenerate the shared baseline with any one of these commands from the repository root:
@@ -296,8 +310,19 @@ absolute path in the same shell. Regenerate the shared baseline with any one of 
 (cd examples/gradle-kotlin && UPDATE_CONTEXT_BASELINE=true ./gradlew test -PcontextContractRepository="$CONTEXT_CONTRACT_REPOSITORY")
 ```
 
+**Fixture coverage:** the shared tests include `@MockitoBean`, a `@DynamicPropertySource` endpoint supplier whose value
+changes, and separate baselines for full versus selected configuration sets. Mock behavior and dynamic endpoint values
+alone do not change the structural snapshot; the fixture shows explicit checks detecting both. The endpoint supplier
+simulates a changing container address; no real Testcontainers, Boot web/data test slices or context-cache lifecycle
+matrix is exercised. Those integration paths remain unverified; add dedicated fixtures with independent baselines in
+the consuming application. A selected configuration set is not evidence of real Boot slice compatibility.
+
 ### Known limitations
 
+- There is no bean/condition ignore or filter API. Use one dedicated, stable contract-test configuration per module and
+  context kind, with an independent baseline for each slice/mock configuration; do not share baselines across slices.
+  Boot infrastructure definitions participate, so patch upgrades can produce review noise. Review those differences
+  rather than deleting baseline entries or silently skipping verification. Build-tool helpers are optional convenience.
 - Bean types are declared types, not guaranteed runtime classes. FactoryBeans declared as `FactoryBean<Object>` record
   `java.lang.Object` even if runtime `getObjectType()` is more specific. Raw or unresolved products record `?`; writes
   may record it for inspection, but verification fails closed until declared type metadata is supplied and regenerated.
@@ -323,6 +348,16 @@ absolute path in the same shell. Regenerate the shared baseline with any one of 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (workflow `ci`, on push and pull request) builds the library and all
 three examples on Linux and Windows (JDK 21 Temurin) and then fails if the shared baseline file changed
 (`git diff --exit-code`). Run the same steps locally with the commands in [Runnable examples](#runnable-examples).
+
+**Review artifacts:** the library puts the complete diff in the assertion message; it does not emit a dedicated diff
+file. CI uploads Maven Surefire XML/text reports and Gradle JUnit XML/HTML reports with `if: always()`, including after
+a verification failure. Download the OS-specific `test-reports-*` artifact to review the failure. Consumer CI must retain
+its own test reports/logs too; console-log retention alone is not guaranteed by this library. Reports contain unredacted
+identifiers, just like baselines; review their sensitivity before uploading.
+
+Test counts and coverage must come from the current run's reports; annotation counts are not executed case counts.
+JaCoCo generates a report during `verify`; no coverage threshold is enforced. PIT is optional (`-Pmutation`);
+no mutation threshold is enforced. Historical audit percentages are not current CI measurements.
 
 Build notes:
 
@@ -354,6 +389,9 @@ auto-configuration เปลี่ยนโดยไม่มีอะไรล�
 2. สร้าง baseline ครั้งแรกอย่างตั้งใจด้วย `ContextContract.write(context, path)` ตรวจไฟล์ แล้ว commit
 3. เรียก `ContextContract.verify(context, path)` ในเทสต์ปกติ (ตัวอย่างโค้ดอยู่ใน Quick start ด้านบน)
 
+ใช้ absolute path ของ baseline ประจำ module เดียวกันทั้ง write/verify และกำหนด `-Dcontext.baseline` ใน IDE ด้วย
+เพราะ relative path จะเปลี่ยนตาม working directory; ดูการตั้งค่า Maven/Gradle ใน Quick start
+
 มี API สาธารณะแค่สองเมธอด: `verify` (ไม่แตะไฟล์ ถ้า baseline หายหรือต่างจะโยน `AssertionError`) และ `write`
 (เขียนหรือเขียนทับ baseline เรียกเองอย่างตั้งใจเท่านั้น)
 
@@ -380,7 +418,8 @@ auto-configuration เปลี่ยนโดยไม่มีอะไรล�
 
 ### ความเข้ากันได้
 
-- Java 21, Spring Boot 4.0.x (build และทดสอบกับ 4.0.9), Spring Framework 7 และ Jackson 3 (`tools.jackson`)
+- Java 21, Spring Boot 4.0.9, Spring Framework 7 และ Jackson 3 (`tools.jackson`); fixture ครอบคลุมเฉพาะ 4.0.9
+  ยังไม่ยืนยัน patch อื่นหรือ Boot 4.1 ต้องทดสอบ consumer แยกก่อนใช้เป็น gate
 - ไลบรารีเพิ่ม Jackson 3 ใน test classpath จึงอาจทำให้ `@ConditionalOnClass` ต่างจาก production ที่มีเฉพาะ Jackson 2
   snapshot ยืนยันเฉพาะ test context ไม่รับรองว่าเหมือน production ต้องตรวจ dependency ให้ตรงกันก่อนใช้เป็น production guard
   ห้าม exclude Jackson 3 เพราะ `ContextContract` ต้องใช้ ดูรายละเอียด Test-classpath influence ใน Compatibility ด้านบน
@@ -402,6 +441,10 @@ auto-configuration เปลี่ยนโดยไม่มีอะไรล�
 - ผลของ condition ใช้ชื่อคลาสเต็ม (nested class ใช้ `$`) ต่อ source จึงแยกคลาสที่ชื่อสั้นเหมือนกันได้ หาก key ซ้ำ หรือ source normalize แล้วซ้ำ จะ fail closed ด้วย `IllegalStateException` (incomplete analysis) ไม่รวมผลด้วย AND อีกต่อไป
 - alias ที่ shadow bean definition อื่นจะ fail capture ด้วย `IllegalStateException` (incomplete alias analysis)
 - baseline เก่าอาจขาด alias ใช้ runtime product type หรือสูญเสีย condition identity จากการรวมผล ต้องตรวจ diff และสร้างใหม่อย่างตั้งใจด้วย implementation นี้
+- ไม่มี ignore/filter API ให้ใช้ contract context ที่คงที่และ baseline แยกต่อ module/slice/mock configuration
+- unknown top-level JSON fields และ null entries จะถูกปฏิเสธด้วย `IllegalStateException`
+- fixture ยังไม่ครอบคลุม Testcontainers จริง, Boot web/data slices หรือ context-cache lifecycle matrix; ดู Fixture coverage
+- diff อยู่ใน assertion message ไม่มีไฟล์ diff แยก; CI เก็บ test reports แม้ fail โดยไม่มี coverage/mutation threshold
 - ให้ snapshot หลัง context เริ่มทำงานเสร็จและหยุดเปลี่ยนแปลง ไม่รองรับการแก้ context/report ระหว่างอ่าน หรือเขียน baseline เดียวกันพร้อมกัน
 - ยังไม่ได้เผยแพร่ขึ้น Maven Central และยังไม่ได้ทดสอบกับ Spring Boot 3.5
 

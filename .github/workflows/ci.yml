@@ -32,3 +32,16 @@ jobs:
         run: ./gradlew clean test -PcontextContractRepository="$CONTEXT_CONTRACT_REPOSITORY"
       - name: Baseline untouched by the example runs
         run: git diff --exit-code examples/shared/context-baseline.json
+      - name: Retain test reports for baseline review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            target/surefire-reports/**
+            examples/maven/target/surefire-reports/**
+            examples/gradle-groovy/build/test-results/test/**
+            examples/gradle-groovy/build/reports/tests/test/**
+            examples/gradle-kotlin/build/test-results/test/**
+            examples/gradle-kotlin/build/reports/tests/test/**

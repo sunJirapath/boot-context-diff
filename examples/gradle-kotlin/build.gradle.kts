@@ -38,6 +38,7 @@ sourceSets {
 
 tasks.test {
 	useJUnitPlatform()
+	systemProperty("context.baseline", layout.projectDirectory.file("../shared/context-baseline.json").asFile.absolutePath)
 	// the example test reads this to decide whether to write the baseline
 	environment("UPDATE_CONTEXT_BASELINE", System.getenv("UPDATE_CONTEXT_BASELINE") ?: "")
 }

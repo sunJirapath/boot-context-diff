@@ -90,4 +90,73 @@ class InstallationDocumentationTests {
 			.doesNotContain("never serializes property values");
 	}
 
+	@Test
+	void baselinePathsAreAnchoredByEachExampleAndExplainedForIdeRuns() throws Exception {
+		assertThat(Files.readString(Path.of("README.md"))).contains("**Baseline ownership:**",
+				"module-specific absolute path", "In an IDE, set `-Dcontext.baseline=",
+				"Supply the same module-specific absolute path to both write and verify");
+		assertThat(Files.readString(Path.of("examples/maven/pom.xml")))
+			.contains("<context.baseline>${project.basedir}/../shared/context-baseline.json</context.baseline>");
+		for (String script : List.of("examples/gradle-groovy/build.gradle", "examples/gradle-kotlin/build.gradle.kts")) {
+			assertThat(Files.readString(Path.of(script)).replace('\'', '"'))
+				.contains("systemProperty", "\"context.baseline\"",
+						"layout.projectDirectory.file(\"../shared/context-baseline.json\").asFile.absolutePath");
+		}
+		String fixture = Files.readString(Path.of("examples/shared/src/test/java/demo/ContextContractExampleTest.java"));
+		assertThat(fixture).contains("System.getProperty(\"context.baseline\", \"\")", "assertThat(BASELINE.isAbsolute())");
+		assertThat(fixture.indexOf("assertThat(BASELINE.isAbsolute())"))
+			.isLessThan(fixture.indexOf("ContextContract.write(this.context, BASELINE)"));
+	}
+
+	@Test
+	void filteringLimitationsRequireIndependentStableContractContexts() throws Exception {
+		assertThat(Files.readString(Path.of("README.md")))
+			.contains("There is no bean/condition ignore or filter API", "dedicated, stable contract-test configuration",
+					"independent baseline for each slice/mock configuration", "do not share baselines across slices",
+					"rather than deleting baseline entries or silently skipping verification");
+	}
+
+	@Test
+	void ciRetainsFailureReportsAndDocumentsTheAbsenceOfADedicatedDiffFile() throws Exception {
+		String workflow = Files.readString(Path.of(".github/workflows/ci.yml"));
+		int start = workflow.indexOf("- name: Retain test reports for baseline review");
+		assertThat(start).isGreaterThanOrEqualTo(0);
+		assertThat(workflow.substring(start)).contains("if: always()", "uses: actions/upload-artifact@v4",
+				"name: test-reports-${{ matrix.os }}", "if-no-files-found: error", "target/surefire-reports/**",
+				"examples/maven/target/surefire-reports/**", "examples/gradle-groovy/build/test-results/test/**",
+				"examples/gradle-groovy/build/reports/tests/test/**", "examples/gradle-kotlin/build/test-results/test/**",
+				"examples/gradle-kotlin/build/reports/tests/test/**");
+		assertThat(Files.readString(Path.of("README.md")))
+			.contains("does not emit a dedicated diff", "Consumer CI must retain", "unredacted");
+	}
+
+	@Test
+	void fixtureCoverageDoesNotClaimRealContainersOrBootSlices() throws Exception {
+		assertThat(Files.readString(Path.of("README.md"))).contains("**Fixture coverage:**", "`@MockitoBean`",
+				"`@DynamicPropertySource`", "no real Testcontainers, Boot web/data test slices or context-cache lifecycle",
+				"Those integration paths remain unverified");
+	}
+
+	@Test
+	void compatibilityIsLimitedToThePinnedConsumerFixtureVersion() throws Exception {
+		assertThat(Files.readString(Path.of("README.md")))
+			.contains("target only Boot 4.0.9", "Other 4.0 patches and Boot 4.1 are unverified",
+					"no cross-version compatibility is claimed")
+			.doesNotContain("Spring Boot 4.0.x");
+		assertThat(Files.readString(Path.of("examples/maven/pom.xml"))).contains("<version>4.0.9</version>");
+		for (String script : List.of("examples/gradle-groovy/build.gradle", "examples/gradle-kotlin/build.gradle.kts")) {
+			assertThat(Files.readString(Path.of(script))).contains("spring-boot-dependencies:4.0.9");
+		}
+	}
+
+	@Test
+	void testEvidenceComesFromCurrentReportsWithoutStaticCoverageOrCaseCounts() throws Exception {
+		assertThat(Files.readString(Path.of("README.md")))
+			.contains("Test counts and coverage must come from the current run's reports",
+					"annotation counts are not executed case counts", "no coverage threshold is enforced",
+					"no mutation threshold is enforced", "PIT is optional")
+			.doesNotContain("audit%20lines", "audit%20branches", "| Tests |")
+			.doesNotContainPattern("(?m)^\\|[^\\r\\n]+\\|\\s*\\d+\\s*\\|$");
+	}
+
 }

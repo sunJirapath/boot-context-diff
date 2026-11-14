@@ -69,6 +69,7 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 		Objects.requireNonNull(checks, "checks");
 		ConfigurableListableBeanFactory factory = context.getBeanFactory();
 		// shortcut: manually registered singletons (no bean definition) are not listed
+		// FINDING: Filtering can hide drift; use independent stable contexts (README Known limitations).
 		Map<String, String> beans = new TreeMap<>();
 		for (String name : factory.getBeanDefinitionNames()) {
 			BeanDefinition definition = factory.getMergedBeanDefinition(name);
