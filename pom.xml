@@ -59,6 +59,31 @@
     </dependency>
   </dependencies>
 
+  <build>
+    <plugins>
+      <!-- coverage: target/site/jacoco/jacoco.xml after `mvn verify` (version managed by the Boot parent) -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>report</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>report</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
   <!-- ./mvnw -Prelease deploy: needs a GPG key and Central Portal credentials (server id "central") -->
   <profiles>
     <profile>
