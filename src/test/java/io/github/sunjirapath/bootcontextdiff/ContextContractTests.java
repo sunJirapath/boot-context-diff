@@ -111,6 +111,30 @@ class ContextContractTests {
 	}
 
 	@Test
+	void sensitiveBeanAliasSourceAndCheckIdentifiersAreNotRedacted() throws Exception {
+		Path baseline = dir.resolve("identifiers.json");
+		runner.withPropertyValues("demo.identifier=credential-for-regression-only").run((ctx) -> {
+			String sensitive = ctx.getEnvironment().getRequiredProperty("demo.identifier");
+			GenericBeanDefinition definition = new GenericBeanDefinition();
+			definition.setBeanClass(String.class);
+			BeanDefinitionRegistry registry = (BeanDefinitionRegistry) ctx.getBeanFactory();
+			registry.registerBeanDefinition("bean-" + sensitive, definition);
+			registry.registerAlias("bean-" + sensitive, "alias-" + sensitive);
+			record(ctx, "source-" + sensitive, (context, metadata) -> true,
+					new ConditionOutcome(true, "message-" + sensitive));
+			ContextContract.write(ctx, baseline, Map.of("check-" + sensitive, true));
+			assertThat(Files.readString(baseline))
+				.contains("\"bean-" + sensitive + "\" : \"java.lang.String\"",
+						"\"alias-" + sensitive + "\" : \"alias:bean-" + sensitive + "\"",
+						"\"source-" + sensitive + "\" : {", "\"check-" + sensitive + "\" : true")
+				.doesNotContain("message-" + sensitive);
+			assertThatThrownBy(() -> ContextContract.verify(ctx, baseline, Map.of("check-" + sensitive, false)))
+				.isInstanceOf(AssertionError.class)
+				.hasMessageContaining("CHECK CHANGED     check-" + sensitive + ": true -> false");
+		});
+	}
+
+	@Test
 	void proxiesAndGeneratedClassesDoNotCauseNoise() throws Exception {
 		Path a = dir.resolve("a.json");
 		Path b = dir.resolve("b.json");

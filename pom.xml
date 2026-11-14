@@ -48,6 +48,8 @@
       <artifactId>spring-boot-autoconfigure</artifactId>
       <scope>provided</scope>
     </dependency>
+    <!-- FINDING: Removing Jackson breaks ContextContract baseline I/O; it can change test-only class conditions.
+         Production-classpath parity remains unverified. See README Compatibility. -->
     <dependency>
       <groupId>tools.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>

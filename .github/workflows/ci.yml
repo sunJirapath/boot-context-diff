@@ -18,15 +18,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Library (installs to ~/.m2 for the examples)
-        run: ./mvnw -B clean install
+      - name: Select isolated repository
+        run: echo "CONTEXT_CONTRACT_REPOSITORY=$RUNNER_TEMP/context-contract-m2/$GITHUB_SHA" >> "$GITHUB_ENV"
+      - name: Library (isolated repository for this revision)
+        run: ./mvnw -B clean install -Dmaven.repo.local="$CONTEXT_CONTRACT_REPOSITORY"
       - name: Maven example
-        run: ./mvnw -B -f examples/maven/pom.xml clean verify
+        run: ./mvnw -B -f examples/maven/pom.xml clean verify -Dmaven.repo.local="$CONTEXT_CONTRACT_REPOSITORY"
       - name: Gradle Groovy example
         working-directory: examples/gradle-groovy
-        run: ./gradlew clean test
+        run: ./gradlew clean test -PcontextContractRepository="$CONTEXT_CONTRACT_REPOSITORY"
       - name: Gradle Kotlin example
         working-directory: examples/gradle-kotlin
-        run: ./gradlew clean test
+        run: ./gradlew clean test -PcontextContractRepository="$CONTEXT_CONTRACT_REPOSITORY"
       - name: Baseline untouched by the example runs
         run: git diff --exit-code examples/shared/context-baseline.json

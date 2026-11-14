@@ -26,6 +26,7 @@ import org.springframework.util.ClassUtils;
  * Fingerprint of an application context: bean name to exposed type, configuration source
  * to condition outcomes, and optional caller-supplied boolean checks.
  * Does not read property or environment values.
+ * Identifiers are copied without redaction and must not contain secrets, including property-derived secrets.
  *
  * @param schemaVersion version of the JSON layout, independent of the Spring Boot version
  * @param beans bean name to exposed type name; aliases map to {@code alias:<definition name>}

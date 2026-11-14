@@ -9,7 +9,16 @@ java {
 }
 
 repositories {
-	mavenLocal() // the library is installed there by `./mvnw install` in the repository root
+	exclusiveContent {
+		forRepository {
+			maven {
+				url = uri(providers.gradleProperty("contextContractRepository").get())
+			}
+		}
+		filter {
+			includeGroup("io.github.sunjirapath.bootcontextdiff")
+		}
+	}
 	mavenCentral()
 }
 

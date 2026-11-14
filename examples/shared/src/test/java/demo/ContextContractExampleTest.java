@@ -28,7 +28,7 @@ class ContextContractExampleTest {
 
 	@BeforeEach
 	void generateBaselineOnlyWhenAskedTo() {
-		// Baseline generation is explicit: UPDATE_CONTEXT_BASELINE=true ./mvnw test (or ./gradlew test)
+		// See README Runnable examples for the wrapper and isolated repository arguments.
 		if ("true".equals(System.getenv("UPDATE_CONTEXT_BASELINE"))) {
 			ContextContract.write(this.context, BASELINE);
 		}
