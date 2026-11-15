@@ -6,11 +6,16 @@ import java.util.Map;
 /** Internal seam: loading the snapshot or contract does not require either Jackson generation. */
 interface JsonCodec {
 
+	int MAX_BASELINE_BYTES = 8 * 1024 * 1024;
+
 	String write(ContextSnapshot snapshot);
 
 	ContextSnapshot decode(String json);
 
 	default ContextSnapshot read(String json) {
+		if (json.length() > MAX_BASELINE_BYTES) {
+			throw new IllegalArgumentException("Baseline exceeds 8 MiB limit");
+		}
 		ContextSnapshot snapshot = decode(json);
 		if (snapshot == null) {
 			throw new IllegalArgumentException("Baseline is empty");

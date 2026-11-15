@@ -200,7 +200,7 @@ class ContextSnapshotBeanTests {
 			ContextContract.write(context, baseline);
 			byte[] bytes = Files.readAllBytes(baseline);
 			assertThatThrownBy(() -> ContextContract.verify(context, baseline))
-				.isInstanceOf(IllegalStateException.class).hasMessageContaining("Incomplete bean type analysis");
+				.isExactlyInstanceOf(AssertionError.class).hasMessageContaining("Incomplete bean type analysis");
 			assertThat(Files.readAllBytes(baseline)).isEqualTo(bytes);
 		}
 	}
@@ -215,7 +215,7 @@ class ContextSnapshotBeanTests {
 			known.setAttribute(FactoryBean.OBJECT_TYPE_ATTRIBUTE, String.class);
 			context.registerBeanDefinition("factory", known);
 			assertThatThrownBy(() -> ContextContract.verify(context, baseline))
-				.isInstanceOf(IllegalStateException.class).hasMessageContaining("Incomplete bean type analysis");
+				.isExactlyInstanceOf(AssertionError.class).hasMessageContaining("Incomplete bean type analysis");
 			ContextContract.write(context, baseline);
 			context.registerBeanDefinition("factory", new RootBeanDefinition(UnknownFactory.class));
 			assertThatThrownBy(() -> ContextContract.verify(context, baseline))

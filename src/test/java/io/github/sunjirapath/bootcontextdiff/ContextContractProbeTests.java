@@ -50,7 +50,7 @@ class ContextContractProbeTests {
 		Path baseline = dir.resolve("v3.json");
 		Files.writeString(baseline, "{\"schemaVersion\":3,\"beans\":{},\"conditions\":{}}");
 		runner.run((ctx) -> assertThatThrownBy(() -> ContextContract.verify(ctx, baseline))
-			.isInstanceOf(IllegalStateException.class)
+			.isExactlyInstanceOf(AssertionError.class)
 			.hasMessageContaining(baseline.toString())
 			.hasMessageContaining("schemaVersion"));
 	}
@@ -61,7 +61,7 @@ class ContextContractProbeTests {
 		Files.writeString(baseline, "{\"schemaVersion\":1,\"beans\":{},\"conditions\":{},\"note\":\"hand edited\"}");
 		byte[] before = Files.readAllBytes(baseline);
 		runner.run((ctx) -> assertThatThrownBy(() -> ContextContract.verify(ctx, baseline))
-			.isInstanceOf(IllegalStateException.class)
+			.isExactlyInstanceOf(AssertionError.class)
 			.hasMessageContaining(baseline.toString())
 			.hasMessageContaining("not a valid context baseline")
 			.hasMessageContaining("note"));
@@ -69,7 +69,7 @@ class ContextContractProbeTests {
 	}
 
 	@Test
-	void nullEntriesInBaselineAreRejectedWithIllegalStateException() throws Exception {
+	void nullEntriesInBaselineAreRejectedWithAssertionError() throws Exception {
 		for (String content : new String[] { "{\"schemaVersion\":1,\"beans\":{},\"conditions\":{\"s\":null}}",
 				"{\"schemaVersion\":1,\"beans\":{},\"conditions\":{\"s\":{\"c\":null}}}",
 				"{\"schemaVersion\":1,\"beans\":{\"b\":null},\"conditions\":{}}" }) {
@@ -80,7 +80,7 @@ class ContextContractProbeTests {
 				BeanDefinitionBuilder builder = BeanDefinitionBuilder.rootBeanDefinition(String.class);
 				((BeanDefinitionRegistry) ctx.getBeanFactory()).registerBeanDefinition("b", builder.getBeanDefinition());
 				assertThatThrownBy(() -> ContextContract.verify(ctx, baseline)).as("baseline content: %s", content)
-					.isInstanceOf(IllegalStateException.class)
+					.isExactlyInstanceOf(AssertionError.class)
 					.hasMessageContaining(baseline.toString())
 					.hasMessageContaining("contains a null entry");
 			});

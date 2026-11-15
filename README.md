@@ -102,7 +102,8 @@ check name and boolean result are stored. Omitted checks fail verification; chec
   aliases resolved to their definition. Retargeting an alias is detected even when both targets have the same type.
   No bean is instantiated. Recognized CGLIB suffixes are stripped, JDK proxies are shown as
   `proxy[interfaces]`, and a type that cannot be resolved or loaded is recorded as `?` for inspection.
-  Verification rejects `?` in either the baseline or the live snapshot with `IllegalStateException` (incomplete analysis).
+  Verification rejects `?` in a baseline with `AssertionError`, and in the live snapshot with
+  `IllegalStateException` (incomplete analysis).
 - **Conditions**: Spring Boot's `ConditionEvaluationReport`, reduced to *configuration class or bean method → condition
   full class name → matched (`true`/`false`)*. Nested classes retain `$` in their binary names. Distinct classes with the
   same simple name retain independent outcomes. Outcome messages are dropped because they can echo property values.
@@ -110,11 +111,14 @@ check name and boolean result are stored. Omitted checks fail verification; chec
   with `IllegalStateException` (incomplete analysis). They are never AND-merged into a passing baseline.
 - **Determinism**: maps are sorted, indentation is fixed and line endings are always `\n`, so a baseline written on
   Windows is byte-identical to one written on Linux. CRLF and a leading BOM (Notepad, PowerShell redirects) are tolerated when reading.
-- **Failure messages** name the baseline file. An empty, non-JSON, partial or wrong-`schemaVersion` baseline fails with a
-  clear `IllegalStateException` rather than a `NullPointerException`; an unreadable file raises `UncheckedIOException`.
+- **Failure messages** name the baseline file. An empty, non-JSON, partial, unreadable or wrong-`schemaVersion` baseline
+  fails with a clear `AssertionError`. Reads and writes are limited to 8 MiB. Symbolic links in baseline paths are rejected.
   Duplicate JSON keys and values of the wrong JSON type are rejected; strings/numbers are never coerced into booleans,
-  and fractional or quoted schema versions are rejected. Unknown top-level JSON fields are rejected with
-  `IllegalStateException`; null bean entries, condition sections and condition outcomes also raise `IllegalStateException`.
+  and fractional or quoted schema versions are rejected. Unknown top-level JSON fields, null bean entries,
+  condition sections and condition outcomes also raise `AssertionError`.
+  Diagnostic identifiers escape control characters, workflow-command delimiters and Markdown markup, and show at most
+  256 input characters each. Assertions show the first 100 differences with an explicit truncation notice;
+  comparisons still use complete, unmodified identities.
 
 ### Baseline format
 
@@ -363,11 +367,14 @@ the consuming application. A selected configuration set is not evidence of real 
   this failure. Lambda call sites normalize to their owner class, and proxy identities use sorted interface names.
 - JDK proxies are shown as `proxy[interfaces]`; CGLIB `$$` suffixes are stripped.
 - Schema versions 1 (structure) and 2 (structure plus non-empty checks) are supported; other versions and invalid check
-  sections fail with `IllegalStateException`. Version 2 requires this library version or newer.
+  sections fail with `AssertionError`. Version 2 requires this library version or newer.
 - Older baselines may contain factory implementation or runtime product types instead of declared product types, and
   omit aliases. Review these diffs and regenerate deliberately; do not hand-copy a runtime type to suppress a failure.
-- Snapshot a stable context after startup. Concurrent context/report mutation and simultaneous writes to the same baseline
-  file are not supported. Explicit writes are not transactional; retain the committed baseline if a write is interrupted.
+- Snapshot a stable context after startup. Concurrent context/report mutation is unsupported. Explicit writes replace
+  the baseline atomically using a sibling temporary file; filesystems without atomic replacement fail closed.
+  Concurrent writers are last-writer-wins. This provides process-interruption safety, not power-loss durability.
+  The caller selects the destination: arbitrary paths and overwriting existing non-baseline files remain permitted.
+  Use a trusted directory: ancestor replacement races, Windows junctions and filesystem sandboxing are not covered.
 - Not published to Maven Central.
 - Boot 3 coverage is limited to the 3.5.16 fixture once its current CI gates pass (see Compatibility).
 
@@ -378,7 +385,7 @@ three Boot 4.0.9 examples on Linux and Windows (JDK 21 Temurin), plus a Boot 3.5
 and then fails if the committed baseline files changed
 (`git diff --exit-code`). Run the same steps locally with the commands in [Runnable examples](#runnable-examples).
 
-**Review artifacts:** the library puts the complete diff in the assertion message; it does not emit a dedicated diff
+**Review artifacts:** the library puts a bounded diff in the assertion message; it does not emit a dedicated diff
 file. CI uploads Maven Surefire XML/text reports and Gradle JUnit XML/HTML reports with `if: always()`, including after
 a verification failure. Download the OS-specific `test-reports-*` artifact to review the failure. Consumer CI must retain
 its own test reports/logs too; console-log retention alone is not guaranteed by this library. Reports contain unredacted
@@ -387,6 +394,46 @@ identifiers, just like baselines; review their sensitivity before uploading.
 Test counts and coverage must come from the current run's reports; annotation counts are not executed case counts.
 JaCoCo generates a report during `verify`; no coverage threshold is enforced. PIT is optional (`-Pmutation`);
 no mutation threshold is enforced. Historical audit percentages are not current CI measurements.
+
+**Opt-in real projects (not executed in this review):** `scripts/verify_real_projects.py` reads `MANIFEST.json` under
+`REAL_PROJECTS_DIR`. Missing configuration, manifest entries and project directories print `SKIP`; normal Maven tests
+do not invoke it. It targets `spring-petclinic`, `spring-petclinic-rest` (Boot 4 / Jackson 3), and
+`spring-petclinic-boot35` (Boot 3.5 / Jackson 2), using the same plain JAR for all three. It copies each source into a
+temporary directory and injects a test-scoped dependency and `@SpringBootTest`. Source paths never receive build commands.
+
+```powershell
+# Build BCD_JAR separately, then run these commands when execution is permitted.
+$env:REAL_PROJECTS_DIR = 'E:/rv/_real'
+$env:BCD_JAR = (Resolve-Path 'target/boot-context-diff-0.1.0.jar').Path
+# Optional: BCD_MVN selects an installed Maven executable; wrappers are never used.
+# Optional: BCD_M2_REPOSITORY selects a fully warmed Maven artifact/plugin cache.
+python scripts/verify_real_projects.py
+python -m unittest discover -s scripts -p 'test_verify_real_projects.py'
+```
+
+The script copies the warmed Maven cache into its temporary tree and runs Maven with `--offline`, isolated settings,
+home and temp paths. Missing cached dependencies/plugins are failures, not downloads or skips. Allow enough disk space
+for that cache and four copies per project. Failed runs retain their temporary copies/logs and print their location;
+successful runs remove them. Upstream tests are excluded from compilation; only the injected probe runs.
+The probes check independent-context determinism, unchanged verification, isolated added `@Bean`, conditional-property
+and FreeMarker-starter mutations, and removed-bean/flipped-condition/truncated/empty baseline attacks. Their deltas
+must contain only the controlled changes. No observed totals or compatibility results are claimed yet.
+
+The requested config scan is deliberately literal: every nonempty extracted value in `application*.properties`, YAML
+and `.env`-like files is searched in baseline JSON and decoded string keys/values. Common values such as `false` may
+therefore fail this check without establishing a credential leak; offenders are printed as escaped representations.
+Unsupported continued properties or complex YAML (blocks, flow collections, anchors/tags) fail closed rather than
+silently reducing coverage. Private-key paths, `.secrets`, `_ssh.env`, VCS files and existing build outputs are excluded.
+Only trusted pinned project builds should be used: these copies and Maven offline mode are not an OS sandbox for
+arbitrary build plugins. The source inventory is checked before/after each project, including failure paths;
+unrelated filesystem writes and network attempts by plugins require external sandbox enforcement.
+`--project NAME` selects a manifest entry. Boot 2.x entries are rejected at harness preflight only; this is not a
+runtime compatibility test. The optional microservices fleet needs a service-specific adapter and is not included.
+The manifest supplies commit provenance; the script does not invoke Git or independently verify checkout SHAs.
+
+Security probes include active `// FINDING:` tests for identifier-secret leakage and ignored manual-singleton drift.
+They intentionally fail until those contract-level decisions are resolved; no tests are disabled. See
+[`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) for the threat model and review limits.
 
 Build notes:
 
@@ -470,17 +517,17 @@ auto-configuration เปลี่ยนโดยไม่มีอะไรล�
 ### ข้อจำกัด
 
 - type ของ bean คือ type จาก bean definition ไม่ใช่ runtime class; product ของ FactoryBean ใช้ metadata หรือ generic signature เท่านั้น ไม่เรียก runtime `getObjectType()`
-- ถ้า resolve ไม่ได้หรือโหลดคลาสไม่ได้จะบันทึกเป็น `?` เพื่อการตรวจสอบ แต่ `verify` จะ fail closed ด้วย `IllegalStateException` หาก baseline หรือ context มี `?`
+- ถ้า resolve ไม่ได้หรือโหลดคลาสไม่ได้จะบันทึกเป็น `?` เพื่อการตรวจสอบ แต่ `verify` จะ fail closed ด้วย `AssertionError` หาก baseline มี `?` และ `IllegalStateException` หาก live context มี `?`
 - singleton ที่ลงทะเบียนด้วยมือ (ไม่มี bean definition) ไม่ถูกแสดง และ context แม่ (parent) ถูกละเว้น ให้ snapshot แยกทีละ context
 - alias ของ local non-abstract bean definition ถูกบันทึกใน beans เป็น `alias:<definition name>` และตรวจจับการเพิ่ม ลบ หรือเปลี่ยน target ได้; alias ของ parent, abstract definition และ manual singleton ไม่อยู่ใน contract
 - ผลของ condition ใช้ชื่อคลาสเต็ม (nested class ใช้ `$`) ต่อ source จึงแยกคลาสที่ชื่อสั้นเหมือนกันได้ หาก key ซ้ำ หรือ source normalize แล้วซ้ำ จะ fail closed ด้วย `IllegalStateException` (incomplete analysis) ไม่รวมผลด้วย AND อีกต่อไป
 - alias ที่ shadow bean definition อื่นจะ fail capture ด้วย `IllegalStateException` (incomplete alias analysis)
 - baseline เก่าอาจขาด alias ใช้ runtime product type หรือสูญเสีย condition identity จากการรวมผล ต้องตรวจ diff และสร้างใหม่อย่างตั้งใจด้วย implementation นี้
 - ไม่มี ignore/filter API ให้ใช้ contract context ที่คงที่และ baseline แยกต่อ module/slice/mock configuration
-- unknown top-level JSON fields และ null entries จะถูกปฏิเสธด้วย `IllegalStateException`
+- unknown top-level JSON fields และ null entries จะถูกปฏิเสธด้วย `AssertionError`
 - fixture ยังไม่ครอบคลุม Testcontainers จริง, Boot web/data slices หรือ context-cache lifecycle matrix; ดู Fixture coverage
 - diff อยู่ใน assertion message ไม่มีไฟล์ diff แยก; CI เก็บ test reports แม้ fail โดยไม่มี coverage/mutation threshold
-- ให้ snapshot หลัง context เริ่มทำงานเสร็จและหยุดเปลี่ยนแปลง ไม่รองรับการแก้ context/report ระหว่างอ่าน หรือเขียน baseline เดียวกันพร้อมกัน
+- ให้ snapshot หลัง context เริ่มทำงานเสร็จและหยุดเปลี่ยนแปลง ไม่รองรับการแก้ context/report ระหว่างอ่าน การเขียน baseline ใช้ atomic replacement และ writer ล่าสุดชนะ
 - ยังไม่ได้เผยแพร่ขึ้น Maven Central; fixture ใหม่ pin Boot 3.5.16 แต่ยังไม่มีผลรันในรอบนี้ (ดู Compatibility)
 
 ### สัญญาอนุญาต

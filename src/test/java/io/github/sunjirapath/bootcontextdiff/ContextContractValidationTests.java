@@ -1,6 +1,5 @@
 package io.github.sunjirapath.bootcontextdiff;
 
-import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -63,7 +62,7 @@ class ContextContractValidationTests {
 			Files.writeString(baseline, invalid);
 			byte[] before = Files.readAllBytes(baseline);
 			assertThatThrownBy(() -> ContextContract.verify(context, baseline)).as(invalid)
-				.isInstanceOf(IllegalStateException.class).hasMessageContaining(baseline.toString());
+				.isExactlyInstanceOf(AssertionError.class).hasMessageContaining(baseline.toString());
 			assertThat(Files.readAllBytes(baseline)).isEqualTo(before);
 		}
 	}
@@ -76,7 +75,7 @@ class ContextContractValidationTests {
 		try (GenericApplicationContext context = new GenericApplicationContext()) {
 			context.refresh();
 			assertThatThrownBy(() -> ContextContract.verify(context, baseline))
-				.isInstanceOf(UncheckedIOException.class).hasMessageContaining(baseline.toString());
+				.isExactlyInstanceOf(AssertionError.class).hasMessageContaining(baseline.toString());
 		}
 		assertThat(Files.readAllBytes(baseline)).isEqualTo(bytes);
 	}
@@ -99,7 +98,7 @@ class ContextContractValidationTests {
 		Files.write(baseline, bytes);
 		try (GenericApplicationContext context = new GenericApplicationContext()) {
 			assertThatThrownBy(() -> ContextContract.verify(context, baseline))
-				.isInstanceOfAny(IllegalStateException.class, UncheckedIOException.class)
+				.isExactlyInstanceOf(AssertionError.class)
 				.hasMessageContaining(baseline.toString());
 		}
 		assertThat(Files.readAllBytes(baseline)).isEqualTo(bytes);
@@ -112,7 +111,7 @@ class ContextContractValidationTests {
 		Files.write(baseline, bom);
 		try (GenericApplicationContext context = new GenericApplicationContext()) {
 			assertThatThrownBy(() -> ContextContract.verify(context, baseline))
-				.isInstanceOf(IllegalStateException.class).hasMessageContaining("is UTF-16");
+				.isExactlyInstanceOf(AssertionError.class).hasMessageContaining("is UTF-16");
 		}
 	}
 

@@ -75,7 +75,7 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 				beans.put(name, typeName(factory, name));
 				for (String alias : factory.getAliases(name)) {
 					if (factory.containsBeanDefinition(alias)) {
-						throw new IllegalStateException("Incomplete alias analysis: alias shadows definition " + alias);
+						throw new IllegalStateException("Incomplete alias analysis: alias shadows definition " + DiagnosticText.of(alias));
 					}
 					beans.put(alias, "alias:" + name);
 				}
@@ -89,14 +89,14 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 			report.getConditionAndOutcomesBySource().forEach((source, outcomes) -> {
 				Map<String, Boolean> byType = new TreeMap<>();
 				if (conditions.putIfAbsent(stable(source), byType) != null) {
-					throw new IllegalStateException("Incomplete condition analysis: colliding source " + stable(source));
+					throw new IllegalStateException("Incomplete condition analysis: colliding source " + DiagnosticText.of(stable(source)));
 				}
 				// only booleans: outcome messages can echo property values
 				outcomes.forEach((entry) -> {
 					String condition = conditionName(entry.getCondition());
 					if (byType.putIfAbsent(condition, entry.getOutcome().isMatch()) != null) {
 						throw new IllegalStateException("Incomplete condition analysis: colliding condition "
-							+ condition + " at " + stable(source));
+							+ DiagnosticText.of(condition) + " at " + DiagnosticText.of(stable(source)));
 					}
 				});
 			});
@@ -142,7 +142,7 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 					type = definition.getResolvableType().as(FactoryBean.class).getGeneric().resolve();
 				}
 				else {
-					throw new IllegalStateException("Invalid FactoryBean product metadata for " + name);
+					throw new IllegalStateException("Invalid FactoryBean product metadata for " + DiagnosticText.of(name));
 				}
 			}
 		}
@@ -172,28 +172,32 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 			String was = beans.get(name);
 			String now = actual.beans.get(name);
 			if (now == null) {
-				lines.add("REMOVED BEAN      " + name + " (was " + was + ")");
+				lines.add("REMOVED BEAN      " + DiagnosticText.of(name) + " (was " + DiagnosticText.of(was) + ")");
 			}
 			else if (was == null) {
-				lines.add("ADDED BEAN        " + name + " (" + now + ")");
+				lines.add("ADDED BEAN        " + DiagnosticText.of(name) + " (" + DiagnosticText.of(now) + ")");
 			}
 			else if (!was.equals(now)) {
-				lines.add("BEAN TYPE CHANGED " + name + ": " + was + " -> " + now);
+				lines.add("BEAN TYPE CHANGED " + DiagnosticText.of(name) + ": " + DiagnosticText.of(was) + " -> " + DiagnosticText.of(now));
 			}
 		}
 		for (String source : union(conditions, actual.conditions)) {
 			Map<String, Boolean> was = conditions.getOrDefault(source, Map.of());
 			Map<String, Boolean> now = actual.conditions.getOrDefault(source, Map.of());
+			if (was.isEmpty() && now.isEmpty() && conditions.containsKey(source) != actual.conditions.containsKey(source)) {
+				lines.add("CONDITION SOURCE CHANGED " + DiagnosticText.of(source) + ": "
+						+ (conditions.containsKey(source) ? "evaluated -> not evaluated" : "not evaluated -> evaluated"));
+			}
 			for (String condition : union(was, now)) {
 				if (!java.util.Objects.equals(was.get(condition), now.get(condition))) {
-					lines.add("CONDITION CHANGED " + source + " [" + condition + "]: "
+					lines.add("CONDITION CHANGED " + DiagnosticText.of(source) + " [" + DiagnosticText.of(condition) + "]: "
 							+ outcome(was.get(condition)) + " -> " + outcome(now.get(condition)));
 				}
 			}
 		}
 		for (String name : union(checks, actual.checks)) {
 			if (!Objects.equals(checks.get(name), actual.checks.get(name))) {
-				lines.add("CHECK CHANGED     " + name + ": " + checkResult(checks.get(name)) + " -> "
+				lines.add("CHECK CHANGED     " + DiagnosticText.of(name) + ": " + checkResult(checks.get(name)) + " -> "
 						+ checkResult(actual.checks.get(name)));
 			}
 		}

@@ -152,7 +152,7 @@ class ContextContractCheckTests {
 		String content = "{\"schemaVersion\":2,\"beans\":{},\"conditions\":{}" + section + "}";
 		Files.writeString(baseline, content);
 		runner.run((ctx) -> assertThatThrownBy(() -> ContextContract.verify(ctx, baseline, Map.of("probe", true)))
-			.isInstanceOf(IllegalStateException.class).hasMessageContaining(baseline.toString()));
+			.isExactlyInstanceOf(AssertionError.class).hasMessageContaining(baseline.toString()));
 		assertThat(Files.readString(baseline)).isEqualTo(content);
 	}
 
@@ -168,6 +168,6 @@ class ContextContractCheckTests {
 		Path baseline = dir.resolve("legacy.json");
 		Files.writeString(baseline, "{\"schemaVersion\":1,\"beans\":{},\"conditions\":{},\"checks\":{\"probe\":true}}");
 		runner.run((ctx) -> assertThatThrownBy(() -> ContextContract.verify(ctx, baseline, Map.of("probe", true)))
-			.isInstanceOf(IllegalStateException.class).hasMessageContaining("schemaVersion"));
+			.isExactlyInstanceOf(AssertionError.class).hasMessageContaining("schemaVersion"));
 	}
 }
