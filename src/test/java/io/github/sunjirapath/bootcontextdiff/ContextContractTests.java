@@ -82,7 +82,7 @@ class ContextContractTests {
 		runner.withPropertyValues("demo.feature=on").run((ctx) -> ContextContract.write(ctx, baseline));
 		runner.run((ctx) -> assertThatThrownBy(() -> ContextContract.verify(ctx, baseline))
 			.hasMessageContaining("CONDITION CHANGED")
-			.hasMessageContaining("[OnPropertyCondition]: matched -> not matched")
+			.hasMessageContaining("[org.springframework.boot.autoconfigure.condition.OnPropertyCondition]: matched -> not matched")
 			.hasMessageContaining("REMOVED BEAN      feature"));
 	}
 
@@ -108,6 +108,30 @@ class ContextContractTests {
 		assertThat(Files.readString(baseline)).doesNotContain("hunter2").contains("OnPropertyCondition");
 		runner.run((ctx) -> assertThatThrownBy(() -> ContextContract.verify(ctx, baseline))
 			.hasMessageNotContaining("hunter2"));
+	}
+
+	@Test
+	void sensitiveBeanAliasSourceAndCheckIdentifiersAreNotRedacted() throws Exception {
+		Path baseline = dir.resolve("identifiers.json");
+		runner.withPropertyValues("demo.identifier=credential-for-regression-only").run((ctx) -> {
+			String sensitive = ctx.getEnvironment().getRequiredProperty("demo.identifier");
+			GenericBeanDefinition definition = new GenericBeanDefinition();
+			definition.setBeanClass(String.class);
+			BeanDefinitionRegistry registry = (BeanDefinitionRegistry) ctx.getBeanFactory();
+			registry.registerBeanDefinition("bean-" + sensitive, definition);
+			registry.registerAlias("bean-" + sensitive, "alias-" + sensitive);
+			record(ctx, "source-" + sensitive, (context, metadata) -> true,
+					new ConditionOutcome(true, "message-" + sensitive));
+			ContextContract.write(ctx, baseline, Map.of("check-" + sensitive, true));
+			assertThat(Files.readString(baseline))
+				.contains("\"bean-" + sensitive + "\" : \"java.lang.String\"",
+						"\"alias-" + sensitive + "\" : \"alias:bean-" + sensitive + "\"",
+						"\"source-" + sensitive + "\" : {", "\"check-" + sensitive + "\" : true")
+				.doesNotContain("message-" + sensitive);
+			assertThatThrownBy(() -> ContextContract.verify(ctx, baseline, Map.of("check-" + sensitive, false)))
+				.isInstanceOf(AssertionError.class)
+				.hasMessageContaining("CHECK CHANGED     check-" + sensitive + ": true -> false");
+		});
 	}
 
 	@Test
@@ -210,7 +234,7 @@ class ContextContractTests {
 		Condition lambda = (context, metadata) -> true;
 		runner.run((ctx) -> {
 			record(ctx, "lambda.Source", lambda, ConditionOutcome.match());
-			assertThat(ContextSnapshot.of(ctx).conditions().get("lambda.Source")).containsOnlyKeys("ContextContractTests");
+			assertThat(ContextSnapshot.of(ctx).conditions().get("lambda.Source")).containsOnlyKeys(ContextContractTests.class.getName());
 		});
 	}
 
@@ -230,13 +254,14 @@ class ContextContractTests {
 	}
 
 	@Test
-	void sourcesThatNormaliseToTheSameNameAreMerged() {
+	void sourcesThatNormaliseToTheSameNameFailClosed() {
 		Condition condition = (context, metadata) -> true;
-		// the earlier source does not match: last-write-wins would report the later, matching one
 		runner.run((ctx) -> {
 			record(ctx, "Twin$$SpringCGLIB$$0", condition, ConditionOutcome.noMatch("x"));
 			record(ctx, "Twin$$SpringCGLIB$$1", condition, ConditionOutcome.match());
-			assertThat(ContextSnapshot.of(ctx).conditions().get("Twin").values()).containsExactly(false);
+			assertThatThrownBy(() -> ContextSnapshot.of(ctx))
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("Incomplete condition analysis: colliding source Twin");
 		});
 	}
 

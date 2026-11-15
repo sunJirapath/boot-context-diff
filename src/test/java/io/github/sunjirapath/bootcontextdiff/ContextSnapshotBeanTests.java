@@ -3,10 +3,13 @@ package io.github.sunjirapath.bootcontextdiff;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Proxy;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -22,8 +25,12 @@ import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.core.ResolvableType;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ContextSnapshotBeanTests {
+
+	@TempDir
+	Path dir;
 
 	@Test
 	void genericFactoryBeanUsesProductTypeWithoutCreatingFactoryOrProduct() {
@@ -56,6 +63,17 @@ class ContextSnapshotBeanTests {
 		try (GenericApplicationContext context = emptyContext()) {
 			context.registerBeanDefinition("factory", new RootBeanDefinition(UnknownFactory.class));
 			assertThat(ContextSnapshot.of(context).beans()).containsEntry("factory", "?");
+		}
+	}
+
+	@Test
+	void invalidFactoryBeanProductMetadataFailsClosed() {
+		try (GenericApplicationContext context = emptyContext()) {
+			RootBeanDefinition definition = new RootBeanDefinition(UnknownFactory.class);
+			definition.setAttribute(FactoryBean.OBJECT_TYPE_ATTRIBUTE, "java.lang.String");
+			context.registerBeanDefinition("factory", definition);
+			assertThatThrownBy(() -> ContextSnapshot.of(context))
+				.isInstanceOf(IllegalStateException.class).hasMessageContaining("Invalid FactoryBean product metadata");
 		}
 	}
 
@@ -116,11 +134,92 @@ class ContextSnapshotBeanTests {
 	}
 
 	@Test
-	void existingFactoryCanExposeRuntimeProductTypeWithoutCreatingProduct() {
+	void existingFactoryUsesDeclaredProductTypeWithoutConsultingRuntimeMetadata() {
 		try (GenericApplicationContext context = emptyContext()) {
 			context.registerBeanDefinition("factory", new RootBeanDefinition(ExistingFactory.class));
 			context.getBeanFactory().registerSingleton("factory", new ExistingFactory());
-			assertThat(ContextSnapshot.of(context).beans()).containsEntry("factory", "java.lang.String");
+			assertThat(ContextSnapshot.of(context).beans()).containsEntry("factory", "java.lang.Object");
+		}
+	}
+
+	@Test
+	void lazyFactoryWarmUpDoesNotChangeSnapshotOrBaseline() throws Exception {
+		try (GenericApplicationContext context = emptyContext()) {
+			RootBeanDefinition definition = new RootBeanDefinition(ExistingFactory.class);
+			definition.setLazyInit(true);
+			context.registerBeanDefinition("factory", definition);
+			ContextSnapshot before = ContextSnapshot.of(context);
+			Path baseline = dir.resolve("factory.json");
+			ContextContract.write(context, baseline);
+			byte[] bytes = Files.readAllBytes(baseline);
+			assertThat(context.getBeanFactory().containsSingleton("factory")).isFalse();
+			context.getBean("&factory");
+			assertThat(context.getBeanFactory().containsSingleton("factory")).isTrue();
+			assertThat(ContextSnapshot.of(context)).isEqualTo(before);
+			ContextContract.verify(context, baseline);
+			assertThat(Files.readAllBytes(baseline)).isEqualTo(bytes);
+		}
+	}
+
+	@Test
+	void factoryMethodProductMetadataDoesNotChangeAfterWarmUp() {
+		try (GenericApplicationContext context = emptyContext()) {
+			RootBeanDefinition definition = new RootBeanDefinition(StaticMethods.class);
+			definition.setFactoryMethodName("factory");
+			definition.setLazyInit(true);
+			context.registerBeanDefinition("factory", definition);
+			ContextSnapshot before = ContextSnapshot.of(context);
+			assertThat(before.beans()).containsEntry("factory", "java.lang.Object");
+			context.getBean("&factory");
+			assertThat(ContextSnapshot.of(context)).isEqualTo(before);
+		}
+	}
+
+	@ParameterizedTest
+	@ValueSource(booleans = { false, true })
+	void rawFactoryWarmUpPreservesDeclaredMetadataOrUnknown(boolean productMetadata) {
+		try (GenericApplicationContext context = emptyContext()) {
+			RootBeanDefinition definition = new RootBeanDefinition(RuntimeOnlyFactory.class);
+			definition.setLazyInit(true);
+			if (productMetadata) {
+				definition.setAttribute(FactoryBean.OBJECT_TYPE_ATTRIBUTE, String.class);
+			}
+			context.registerBeanDefinition("factory", definition);
+			ContextSnapshot before = ContextSnapshot.of(context);
+			assertThat(before.beans()).containsEntry("factory", productMetadata ? "java.lang.String" : "?");
+			context.getBean("&factory");
+			assertThat(ContextSnapshot.of(context)).isEqualTo(before);
+		}
+	}
+
+	@Test
+	void unresolvedTypesCannotPassVerificationOrChangeBaseline() throws Exception {
+		try (GenericApplicationContext context = emptyContext()) {
+			context.registerBeanDefinition("factory", new RootBeanDefinition(UnknownFactory.class));
+			Path baseline = dir.resolve("unknown.json");
+			ContextContract.write(context, baseline);
+			byte[] bytes = Files.readAllBytes(baseline);
+			assertThatThrownBy(() -> ContextContract.verify(context, baseline))
+				.isInstanceOf(IllegalStateException.class).hasMessageContaining("Incomplete bean type analysis");
+			assertThat(Files.readAllBytes(baseline)).isEqualTo(bytes);
+		}
+	}
+
+	@Test
+	void unresolvedBaselineCannotPassAfterActualTypeBecomesKnown() {
+		try (GenericApplicationContext context = emptyContext()) {
+			context.registerBeanDefinition("factory", new RootBeanDefinition(UnknownFactory.class));
+			Path baseline = dir.resolve("unknown.json");
+			ContextContract.write(context, baseline);
+			RootBeanDefinition known = new RootBeanDefinition(UnknownFactory.class);
+			known.setAttribute(FactoryBean.OBJECT_TYPE_ATTRIBUTE, String.class);
+			context.registerBeanDefinition("factory", known);
+			assertThatThrownBy(() -> ContextContract.verify(context, baseline))
+				.isInstanceOf(IllegalStateException.class).hasMessageContaining("Incomplete bean type analysis");
+			ContextContract.write(context, baseline);
+			context.registerBeanDefinition("factory", new RootBeanDefinition(UnknownFactory.class));
+			assertThatThrownBy(() -> ContextContract.verify(context, baseline))
+				.isInstanceOf(IllegalStateException.class).hasMessageContaining("Incomplete bean type analysis");
 		}
 	}
 
@@ -155,14 +254,58 @@ class ContextSnapshotBeanTests {
 	}
 
 	@Test
-	void parentDefinitionsAliasesAndManualSingletonsAreExcluded() {
+	void localAliasesAreIncludedButParentDefinitionsAndManualSingletonsAreExcluded() {
 		try (GenericApplicationContext parent = emptyContext(); GenericApplicationContext child = new GenericApplicationContext(parent)) {
 			parent.registerBeanDefinition("parentOnly", new RootBeanDefinition(String.class));
 			child.refresh();
 			child.registerBeanDefinition("local", new RootBeanDefinition(Integer.class));
 			child.registerAlias("local", "alias");
 			child.getBeanFactory().registerSingleton("manual", "secret");
-			assertThat(ContextSnapshot.of(child).beans()).isEqualTo(Map.of("local", "java.lang.Integer"));
+			assertThat(ContextSnapshot.of(child).beans())
+				.isEqualTo(Map.of("local", "java.lang.Integer", "alias", "alias:local"));
+		}
+	}
+
+	@Test
+	void removingAliasWithUnchangedDefinitionFailsVerification() throws Exception {
+		try (GenericApplicationContext context = emptyContext()) {
+			context.registerBeanDefinition("client", new RootBeanDefinition(String.class));
+			context.registerAlias("client", "billingClient");
+			Path baseline = dir.resolve("alias.json");
+			ContextContract.write(context, baseline);
+			byte[] bytes = Files.readAllBytes(baseline);
+			context.removeAlias("billingClient");
+			assertThatThrownBy(() -> ContextContract.verify(context, baseline))
+				.isInstanceOf(AssertionError.class)
+				.hasMessageContaining("REMOVED BEAN      billingClient (was alias:client)");
+			assertThat(Files.readAllBytes(baseline)).isEqualTo(bytes);
+		}
+	}
+
+	@Test
+	void chainedAliasRetargetingBetweenSameTypeDefinitionsIsDetected() {
+		try (GenericApplicationContext context = emptyContext()) {
+			context.registerBeanDefinition("first", new RootBeanDefinition(String.class));
+			context.registerBeanDefinition("second", new RootBeanDefinition(String.class));
+			context.registerAlias("first", "direct");
+			context.registerAlias("direct", "billingClient");
+			ContextSnapshot before = ContextSnapshot.of(context);
+			assertThat(before.beans()).containsEntry("billingClient", "alias:first");
+			context.removeAlias("direct");
+			context.registerAlias("second", "direct");
+			assertThat(before.diff(ContextSnapshot.of(context)))
+				.contains("BEAN TYPE CHANGED billingClient: alias:first -> alias:second");
+		}
+	}
+
+	@Test
+	void aliasesShadowingDefinitionsFailClosed() {
+		try (GenericApplicationContext context = emptyContext()) {
+			context.registerBeanDefinition("target", new RootBeanDefinition(String.class));
+			context.registerBeanDefinition("shadowed", new RootBeanDefinition(Integer.class));
+			context.registerAlias("target", "shadowed");
+			assertThatThrownBy(() -> ContextSnapshot.of(context))
+				.isInstanceOf(IllegalStateException.class).hasMessageContaining("Incomplete alias analysis");
 		}
 	}
 
@@ -277,6 +420,7 @@ class ContextSnapshotBeanTests {
 
 	static class StaticMethods {
 		static String string() { throw new AssertionError("Factory method must not be invoked"); }
+		static FactoryBean<Object> factory() { return new ExistingFactory(); }
 	}
 
 	static class User$$Named extends Number {
@@ -296,7 +440,13 @@ class ContextSnapshotBeanTests {
 
 	static class ExistingFactory implements FactoryBean<Object> {
 		@Override public Object getObject() { throw new AssertionError("Product must not be created"); }
-		@Override public Class<?> getObjectType() { return String.class; }
+		@Override public Class<?> getObjectType() { throw new AssertionError("Runtime product metadata must not be read"); }
+	}
+
+	@SuppressWarnings("rawtypes")
+	static class RuntimeOnlyFactory implements FactoryBean {
+		@Override public Object getObject() { throw new AssertionError("Product must not be created"); }
+		@Override public Class<?> getObjectType() { throw new AssertionError("Runtime product metadata must not be read"); }
 	}
 
 	static class MissingProductBase {

@@ -19,15 +19,17 @@ import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionEvaluationReport;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.core.ResolvableType;
 import org.springframework.util.ClassUtils;
 
 /**
  * Fingerprint of an application context: bean name to exposed type, configuration source
  * to condition outcomes, and optional caller-supplied boolean checks.
  * Does not read property or environment values.
+ * Identifiers are copied without redaction and must not contain secrets, including property-derived secrets.
  *
  * @param schemaVersion version of the JSON layout, independent of the Spring Boot version
- * @param beans bean name to exposed type name
+ * @param beans bean name to exposed type name; aliases map to {@code alias:<definition name>}
  * @param conditions configuration class or bean method to condition type to matched
  * @param checks explicitly supplied check name to boolean result; omitted from JSON when empty
  */
@@ -67,11 +69,18 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 		Objects.requireNonNull(checks, "checks");
 		ConfigurableListableBeanFactory factory = context.getBeanFactory();
 		// shortcut: manually registered singletons (no bean definition) are not listed
+		// FINDING: Filtering can hide drift; use independent stable contexts (README Known limitations).
 		Map<String, String> beans = new TreeMap<>();
 		for (String name : factory.getBeanDefinitionNames()) {
 			BeanDefinition definition = factory.getMergedBeanDefinition(name);
 			if (!definition.isAbstract()) {
 				beans.put(name, typeName(factory, name));
+				for (String alias : factory.getAliases(name)) {
+					if (factory.containsBeanDefinition(alias)) {
+						throw new IllegalStateException("Incomplete alias analysis: alias shadows definition " + alias);
+					}
+					beans.put(alias, "alias:" + name);
+				}
 			}
 		}
 		Map<String, Map<String, Boolean>> conditions = new TreeMap<>();
@@ -80,17 +89,24 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 		// shortcut: parent-context reports are ignored, snapshot each context separately
 		if (singleton instanceof ConditionEvaluationReport report) {
 			report.getConditionAndOutcomesBySource().forEach((source, outcomes) -> {
-				// sources that normalise to the same name (per-run $$ suffixes) must merge, not overwrite
-				Map<String, Boolean> byType = conditions.computeIfAbsent(stable(source), (key) -> new TreeMap<>());
+				Map<String, Boolean> byType = new TreeMap<>();
+				if (conditions.putIfAbsent(stable(source), byType) != null) {
+					throw new IllegalStateException("Incomplete condition analysis: colliding source " + stable(source));
+				}
 				// only booleans: outcome messages can echo property values
-				outcomes.forEach((entry) -> byType.merge(conditionName(entry.getCondition()),
-						entry.getOutcome().isMatch(), Boolean::logicalAnd));
+				outcomes.forEach((entry) -> {
+					String condition = conditionName(entry.getCondition());
+					if (byType.putIfAbsent(condition, entry.getOutcome().isMatch()) != null) {
+						throw new IllegalStateException("Incomplete condition analysis: colliding condition "
+							+ condition + " at " + stable(source));
+					}
+				});
 			});
 		}
 		return new ContextSnapshot(checks.isEmpty() ? SCHEMA_VERSION : CHECKS_SCHEMA_VERSION, beans, conditions, checks);
 	}
 
-	// Lambda conditions are named Owner$$Lambda/0x<address> and anonymous ones have no simple name.
+	// Lambda class names carry runtime addresses; keep their owner identity and reject collisions.
 	private static String conditionName(Object condition) {
 		Class<?> type = condition.getClass();
 		if (!type.isSynthetic() && GENERATED_SUFFIX.matcher(type.getName()).find()) {
@@ -99,11 +115,7 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 		if (Proxy.isProxyClass(type)) {
 			return "proxy" + Arrays.stream(type.getInterfaces()).map(Class::getName).sorted().toList();
 		}
-		String name = type.getSimpleName();
-		if (name.isEmpty()) {
-			name = ClassUtils.getShortName(type);
-		}
-		return stable(name);
+		return stable(type.getName());
 	}
 
 	// Declared type first: runtime classes of proxied beans carry per-run counters ($Proxy45, $$SpringCGLIB$$0).
@@ -112,10 +124,28 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 		try {
 			BeanDefinition definition = factory.getMergedBeanDefinition(name);
 			type = definition.getResolvableType().resolve();
-			// A FactoryBean exposes its product; an unresolved static factory exposes its method's return type.
-			if (type == null || FactoryBean.class.isAssignableFrom(type)
+			if (type == null
 					|| (definition.getFactoryMethodName() != null && type.getName().equals(definition.getBeanClassName()))) {
-				type = factory.getType(name, false);
+				// Dereference first: getType(name, false) still calls an existing FactoryBean's getObjectType().
+				type = factory.getType("&" + name, false);
+				if (type == null) {
+					type = factory.getType(name, false);
+				}
+			}
+			if (type != null && FactoryBean.class.isAssignableFrom(type)) {
+				Object attribute = definition.getAttribute(FactoryBean.OBJECT_TYPE_ATTRIBUTE);
+				if (attribute instanceof Class<?> product) {
+					type = product;
+				}
+				else if (attribute instanceof ResolvableType product) {
+					type = product.resolve();
+				}
+				else if (attribute == null) {
+					type = definition.getResolvableType().as(FactoryBean.class).getGeneric().resolve();
+				}
+				else {
+					throw new IllegalStateException("Invalid FactoryBean product metadata for " + name);
+				}
 			}
 		}
 		catch (BeansException | TypeNotPresentException | LinkageError ex) {

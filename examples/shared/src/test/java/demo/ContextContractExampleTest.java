@@ -20,15 +20,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @SpringBootTest
 class ContextContractExampleTest {
 
-	// Tests run with the example's directory as working directory, so this is examples/shared/.
-	private static final Path BASELINE = Path.of("../shared/context-baseline.json");
+	private static final Path BASELINE = Path.of(System.getProperty("context.baseline", ""));
 
 	@Autowired
 	ConfigurableApplicationContext context;
 
 	@BeforeEach
 	void generateBaselineOnlyWhenAskedTo() {
-		// Baseline generation is explicit: UPDATE_CONTEXT_BASELINE=true ./mvnw test (or ./gradlew test)
+		assertThat(BASELINE.isAbsolute()).as("Set -Dcontext.baseline to the absolute baseline path (also in IDEs)")
+			.isTrue();
+		// See README Runnable examples for the wrapper and isolated repository arguments.
 		if ("true".equals(System.getenv("UPDATE_CONTEXT_BASELINE"))) {
 			ContextContract.write(this.context, BASELINE);
 		}

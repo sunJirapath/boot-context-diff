@@ -30,6 +30,7 @@ public final class ContextContract {
 
 	private static final JsonMapper MAPPER = JsonMapper.builder()
 		.enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+		.enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
 		.disable(MapperFeature.ALLOW_COERCION_OF_SCALARS)
 		.disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT)
 		.withCoercionConfig(LogicalType.Textual, (config) -> config
@@ -67,12 +68,13 @@ public final class ContextContract {
 	/**
 	 * Compares {@code context} with the baseline.
 	 * @throws AssertionError if the baseline is missing or differs; the baseline is left untouched
+	 * @throws IllegalStateException if types are unresolved or condition/alias identities collide
 	 */
 	public static void verify(ConfigurableApplicationContext context, Path baseline) {
 		verify(context, baseline, Map.of());
 	}
 
-	/** Verifies structure and caller-supplied checks; missing or changed checks also fail without touching the file. */
+	/** Verifies structure and supplied checks; incomplete type, condition or alias analysis fails closed. */
 	public static void verify(ConfigurableApplicationContext context, Path baseline, Map<String, Boolean> checks) {
 		if (Files.isDirectory(baseline)) {
 			throw new AssertionError("Baseline path " + baseline.toAbsolutePath() + " is a directory, not a file");
@@ -82,8 +84,14 @@ public final class ContextContract {
 					+ ". Generate it deliberately with ContextContract.write(context, path) and commit it.");
 		}
 		ContextSnapshot expected = read(baseline);
-		List<String> differences = expected.diff(ContextSnapshot.of(context, checks));
+		ContextSnapshot actual = ContextSnapshot.of(context, checks);
+		if (expected.beans().containsValue("?") || actual.beans().containsValue("?")) {
+			throw new IllegalStateException("Incomplete bean type analysis for baseline " + baseline.toAbsolutePath()
+					+ ": unresolved type '?'. Supply declared type metadata and regenerate deliberately.");
+		}
+		List<String> differences = expected.diff(actual);
 		if (!differences.isEmpty()) {
+			// FINDING: No diff output-path API; retain full assertion output in test reports (README Review artifacts).
 			throw new AssertionError("ApplicationContext differs from baseline " + baseline.toAbsolutePath()
 					+ " (" + differences.size() + " difference(s)):\n" + String.join("\n", differences)
 					+ "\nA difference is not necessarily a bug (dependency upgrades and config changes do this). "

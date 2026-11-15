@@ -29,11 +29,14 @@ class ContextContractProbeTests {
 	@Test
 	void realAutoConfigurationsRoundTripAndAreDeterministic() throws Exception {
 		ApplicationContextRunner boot = runner.withConfiguration(AutoConfigurations.of(AopAutoConfiguration.class,
-				MessageSourceAutoConfiguration.class, TaskExecutionAutoConfiguration.class));
+				MessageSourceAutoConfiguration.class, TaskExecutionAutoConfiguration.class))
+			.withPropertyValues("spring.aop.auto=true");
 		Path a = dir.resolve("a.json");
 		Path b = dir.resolve("b.json");
 		boot.run((ctx) -> ContextContract.write(ctx, a));
 		boot.run((ctx) -> {
+			assertThat(ContextSnapshot.of(ctx).conditions().get(AopAutoConfiguration.class.getName()))
+				.containsEntry("org.springframework.boot.autoconfigure.condition.OnPropertyCondition", true);
 			ContextContract.write(ctx, b);
 			assertThatCode(() -> ContextContract.verify(ctx, a)).doesNotThrowAnyException();
 		});
@@ -53,30 +56,35 @@ class ContextContractProbeTests {
 	}
 
 	@Test
-	void unknownFieldsInBaselineAreNotARawFailure() throws Exception {
+	void unknownFieldsInBaselineAreRejectedWithoutChangingTheFile() throws Exception {
 		Path baseline = dir.resolve("extra.json");
 		Files.writeString(baseline, "{\"schemaVersion\":1,\"beans\":{},\"conditions\":{},\"note\":\"hand edited\"}");
-		runner.run((ctx) -> {
-			ContextContract.write(ctx, dir.resolve("real.json"));
-			assertThatCode(() -> ContextContract.verify(ctx, baseline)).satisfiesAnyOf(
-					(ex) -> assertThat(ex).isNull(),
-					(ex) -> assertThat(ex).hasMessageContaining(baseline.toString()));
-		});
+		byte[] before = Files.readAllBytes(baseline);
+		runner.run((ctx) -> assertThatThrownBy(() -> ContextContract.verify(ctx, baseline))
+			.isInstanceOf(IllegalStateException.class)
+			.hasMessageContaining(baseline.toString())
+			.hasMessageContaining("not a valid context baseline")
+			.hasMessageContaining("note"));
+		assertThat(Files.readAllBytes(baseline)).isEqualTo(before);
 	}
 
 	@Test
-	void nullEntriesInBaselineDoNotCauseNpe() throws Exception {
+	void nullEntriesInBaselineAreRejectedWithIllegalStateException() throws Exception {
 		for (String content : new String[] { "{\"schemaVersion\":1,\"beans\":{},\"conditions\":{\"s\":null}}",
 				"{\"schemaVersion\":1,\"beans\":{},\"conditions\":{\"s\":{\"c\":null}}}",
 				"{\"schemaVersion\":1,\"beans\":{\"b\":null},\"conditions\":{}}" }) {
 			Path baseline = dir.resolve("nulls.json");
 			Files.writeString(baseline, content);
+			byte[] before = Files.readAllBytes(baseline);
 			runner.run((ctx) -> {
 				BeanDefinitionBuilder builder = BeanDefinitionBuilder.rootBeanDefinition(String.class);
 				((BeanDefinitionRegistry) ctx.getBeanFactory()).registerBeanDefinition("b", builder.getBeanDefinition());
 				assertThatThrownBy(() -> ContextContract.verify(ctx, baseline)).as("baseline content: %s", content)
-					.isNotInstanceOf(NullPointerException.class);
+					.isInstanceOf(IllegalStateException.class)
+					.hasMessageContaining(baseline.toString())
+					.hasMessageContaining("contains a null entry");
 			});
+			assertThat(Files.readAllBytes(baseline)).isEqualTo(before);
 		}
 	}
 

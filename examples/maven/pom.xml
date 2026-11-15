@@ -40,5 +40,16 @@
     <!-- the fixture is shared with the Gradle examples -->
     <sourceDirectory>../shared/src/main/java</sourceDirectory>
     <testSourceDirectory>../shared/src/test/java</testSourceDirectory>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <systemPropertyVariables>
+            <context.baseline>${project.basedir}/../shared/context-baseline.json</context.baseline>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+    </plugins>
   </build>
 </project>
