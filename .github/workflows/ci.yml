@@ -3,7 +3,9 @@ name: ci
 on: [push, pull_request]
 
 jobs:
+  # Owner-only PR gate: skip PRs not authored by the repo owner or coming from forks.
   build:
+    if: github.event_name != 'pull_request' || (github.event.pull_request.user.login == github.repository_owner && github.event.pull_request.head.repo.full_name == github.repository)
     strategy:
       fail-fast: false
       matrix:
@@ -46,6 +48,7 @@ jobs:
             examples/gradle-kotlin/build/test-results/test/**
             examples/gradle-kotlin/build/reports/tests/test/**
   boot3:
+    if: github.event_name != 'pull_request' || (github.event.pull_request.user.login == github.repository_owner && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     defaults:
       run:
