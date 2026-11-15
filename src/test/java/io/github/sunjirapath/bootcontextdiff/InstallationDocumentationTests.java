@@ -52,7 +52,7 @@ class InstallationDocumentationTests {
 			assertThat(workflow).contains("CONTEXT_CONTRACT_REPOSITORY=$RUNNER_TEMP/context-contract-m2/",
 					">> \"$GITHUB_ENV\"");
 			assertThat(workflow.lines().filter((line) -> line.contains("run:") && line.contains("mvnw")).toList())
-				.hasSize(2)
+				.hasSize(workflow.equals(consumer) ? 2 : 4)
 				.allSatisfy((line) -> assertThat(line).contains("-Dmaven.repo.local=\"$CONTEXT_CONTRACT_REPOSITORY\""));
 		}
 		assertThat(project.lines().filter((line) -> line.contains("run:") && line.contains("gradlew")).toList())
@@ -77,8 +77,9 @@ class InstallationDocumentationTests {
 	@Test
 	void compatibilityDocumentsJacksonClasspathInfluence() throws Exception {
 		assertThat(Files.readString(Path.of("README.md"))).contains("Test-classpath influence",
-				"required transitive dependency", "not verified production-classpath parity",
-				"A Jackson-2-only production context is not", "coverage as incomplete");
+				"optional/provided", "not verified production-classpath parity",
+				"Jackson 3 is selected when present", "coverage as incomplete",
+				"consumer must", "supply `jackson-databind`");
 	}
 
 	@Test
@@ -140,13 +141,34 @@ class InstallationDocumentationTests {
 	@Test
 	void compatibilityIsLimitedToThePinnedConsumerFixtureVersion() throws Exception {
 		assertThat(Files.readString(Path.of("README.md")))
-			.contains("target only Boot 4.0.9", "Other 4.0 patches and Boot 4.1 are unverified",
-					"no cross-version compatibility is claimed")
+			.contains("Fixture versions are exactly 3.5.16 and 4.0.9",
+					"Other 4.0 patches and Boot 4.1 are unverified", "have not been executed",
+					"No Boot 3.0–3.4, other 3.5 patches, Boot 2.x or cross-major baseline portability is claimed")
 			.doesNotContain("Spring Boot 4.0.x");
 		assertThat(Files.readString(Path.of("examples/maven/pom.xml"))).contains("<version>4.0.9</version>");
 		for (String script : List.of("examples/gradle-groovy/build.gradle", "examples/gradle-kotlin/build.gradle.kts")) {
 			assertThat(Files.readString(Path.of(script))).contains("spring-boot-dependencies:4.0.9");
 		}
+	}
+
+	@Test
+	void bootThreeConsumerUsesJavaSeventeenJacksonTwoAndTheInstalledArtifact() throws Exception {
+		String pom = Files.readString(Path.of("examples/maven-boot3/pom.xml"));
+		assertThat(pom).contains("<version>3.5.16</version>", "<java.version>17</java.version>",
+				"<groupId>com.fasterxml.jackson.core</groupId>", "<artifactId>boot-context-diff</artifactId>",
+				"<property>maven.repo.local</property>", "<requireFilesExist>",
+				"${maven.repo.local}/io/github/sunjirapath/bootcontextdiff/boot-context-diff/0.1.0/boot-context-diff-0.1.0.jar",
+				"${maven.repo.local}/io/github/sunjirapath/bootcontextdiff/boot-context-diff/0.1.0/boot-context-diff-0.1.0.pom",
+				"${project.basedir}/../../src/test/java", "../shared/src/test/java/fixtureprobe",
+				"<context.baseline>${project.basedir}/context-baseline.json</context.baseline>")
+			.doesNotContain("tools.jackson", "<scope>system</scope>", "<systemPath>");
+		String workflow = Files.readString(Path.of(".github/workflows/ci.yml"));
+		int start = workflow.indexOf("  boot3:");
+		assertThat(start).isGreaterThanOrEqualTo(0);
+		assertThat(workflow.substring(start)).contains("runs-on: ubuntu-latest", "java-version: '17'",
+				"-f examples/maven-boot3/pom.xml clean verify", "test-reports-boot3-java17",
+				"examples/maven-boot3/target/surefire-reports/**", "examples/maven-boot3/context-baseline.json");
+		assertThat(Files.readString(Path.of("pom.xml"))).contains("<java.version>17</java.version>");
 	}
 
 	@Test
