@@ -14,10 +14,10 @@ a pull-request baseline is untrusted. Application code already has JVM privilege
 | P2 | Consumer classpath JARs, bean-definition type metadata, `BCD_MVN` and `BCD_M2_REPOSITORY` | Codec selection, Spring type prediction; copied offline Maven cache/build | Execute already-trusted dependency/build code or select a broken mapper | Existing JsonCodecTests.classpathSelectionPrefersJacksonThreeAndFallsBackOnlyWhenAbsent; opt-in probes |
 | P3 | CI event metadata and action references | Workflow shell / token | Supply-chain or overprivileged token | Read-only ci.yml review |
 
-No YAML/XML/archive/class-file parser, CLI, network client, Markdown/Mermaid renderer or
-environment/property reader exists in src/main. Jackson uses typed records/maps and no
-default typing. Condition messages are deliberately excluded. Names remain data identities,
-so redaction would require a format/contract decision. The opt-in harness executes copied
+No YAML/XML/archive/class-file parser, CLI, network client, or Markdown/Mermaid renderer exists in src/main.
+Snapshot capture reads resolved values only for enumerable environment properties with sensitive-looking keys, to
+refuse identifiers that contain those values; values are never stored or logged. Jackson uses typed records/maps and no
+default typing. Condition messages are deliberately excluded. The opt-in harness executes copied
 project builds and therefore requires trusted pinned projects; it is not an OS sandbox.
 
 ## Findings and disposition
@@ -33,8 +33,8 @@ Locations below refer to the revised files. No P0/P1 exploit was established by 
 | P2 | ContextContract.java:132 | Invalid UTF-8/JSON used several non-assertion error types, frustrating callers expecting a clean failed contract. | S.malformedBaselineAttackFailsClosedWithoutWritesOrRawParserCause; S.invalidUtf8AttackFailsWithoutReplacementOrWrites | fixed: AssertionError for invalid/unreadable baselines |
 | P2 | Jackson2JsonCodec.java:46; Jackson3JsonCodec.java:40 | Explicit schema-1 null checks became an absent/empty map and could pass verification. | C.schemaOneNullChecksAttackCannotPassAsAbsent; S.malformedBaselineAttackFailsClosedWithoutWritesOrRawParserCause | fixed: reject explicit null before record binding in both codecs |
 | P2 | ContextSnapshot.java:187 | An injected empty condition source was compared equal to an absent source. | S.absentEmptyConditionAttackCannotVerifyAsEqual | fixed: distinguish empty source presence |
-| P2 | ContextSnapshot.java:27,74 | Property-derived bean/alias/source/check labels persist credentials even though outcome messages are excluded. | S.identifierSecretLeakAttackMustNotCommitCredentials | test-only (FINDING): active failing test; identity/redaction policy needs a contract decision |
-| P2 | ContextSnapshot.java:69 | A security-relevant manually registered singleton can be added without a structural diff. | S.manualSingletonSecurityDriftAttackMustNotPassVerification | test-only (FINDING): active failing test; broadening the structural contract is a design change |
+| P2 | ContextSnapshot.java | Sensitive property values embedded in bean/alias/source/check identifiers could persist to the baseline or diagnostics. | S.identifierSecretLeakAttackMustNotCommitCredentials | fixed: capture refuses a matching identifier and reports only its property key and identifier kind |
+| P2 | ContextSnapshot.java | A security-relevant manually registered singleton could be added without a structural diff. | S.manualSingletonSecurityDriftAttackMustNotPassVerification | fixed: snapshots include application singletons without definitions and exclude named framework singletons |
 | P3 | .github/workflows/ci.yml:18,39 | Mutable action tags admit upstream tag replacement; no explicit token permissions are declared, so privileges depend on repository defaults. | read-only workflow inspection (no execution) | report-only; workflow untouched |
 
 The workflow's shell commands do not interpolate PR titles, branch names or other untrusted event strings.
@@ -49,7 +49,7 @@ there is no project-root parameter from which to infer confinement. This remains
   bounded assertion output); ContextSnapshot (safe diagnostic identities, empty-source drift); new DiagnosticText
   (control/markup escaping and identifier limit); JsonCodec (shared limit); Jackson2JsonCodec and Jackson3JsonCodec
   (explicit null checks rejected before binding). No dependencies were added.
-- New `ContextContractSecurityTests`: 22 test methods, including one parameterized method and two active FINDING tests.
+- `ContextContractSecurityTests`: 22 test methods, including one parameterized method; both formerly failing security probes now cover the fixed behavior.
 - New `JsonCodecSecurityTests`: 4 test methods, including one parameterized method covering both codecs.
 - New `scripts/test_verify_real_projects.py`: 11 unittest methods; subprocesses are mocked in harness-control tests.
 - New `scripts/verify_real_projects.py`: opt-in runner, one generated SpringBootTest method per project invoked for
@@ -60,8 +60,8 @@ there is no project-root parameter from which to infer confinement. This remains
 
 None of the Java/Python checks, builds, self-checks, real-project runs or mutation tools were executed.
 Expected values were derived from source. Mutation-killing comments describe the intended defenses, not PIT evidence.
-The two FINDING tests are intentionally red; the requested all-config-values literal scan can additionally reject
-common nonsecret values such as `false`. Unsupported complex YAML/property continuations fail closed.
+Sensitive-key detection is limited to enumerable property sources and values of at least four non-blank characters;
+unsupported complex YAML/property continuations are outside the snapshot contract.
 
 ## Limits and uncertainty
 
@@ -70,8 +70,9 @@ common nonsecret values such as `false`. Unsupported complex YAML/property conti
   was verified. Paths require trusted parent directories; there is no filesystem sandbox.
 - Mapper limits provided by the consumer Jackson version still matter. No fuzzing, heap/timing measurements,
   class-loader instrumentation, OS/JDK matrix or real-project compatibility results exist from this review.
-- Parent contexts, manual singletons, broad FactoryBean types and generated-name normalization remain the documented
-  structural limits. Caller-supplied checks remain necessary for security behavior outside the structural snapshot.
+- Parent contexts, broad FactoryBean types and generated-name normalization remain the documented structural limits.
+  Framework singleton exclusions are name-based. Caller-supplied checks remain necessary for security behavior outside
+  the structural snapshot.
 - The runner checks manifest-source content inventories even on failures, copies the cache rather than hardlinking it,
   and invokes only copied project poms offline. It cannot prove arbitrary plugins made no network attempts or writes
   elsewhere without an external sandbox. SHAs are manifest provenance, not independently verified checkouts.

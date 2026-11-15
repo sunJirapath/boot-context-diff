@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
@@ -17,17 +18,20 @@ import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionEvaluationReport;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.support.AbstractApplicationContext;
 import org.springframework.core.ResolvableType;
+import org.springframework.core.env.ConfigurableEnvironment;
+import org.springframework.core.env.EnumerablePropertySource;
 import org.springframework.util.ClassUtils;
 
 /**
  * Fingerprint of an application context: bean name to exposed type, configuration source
  * to condition outcomes, and optional caller-supplied boolean checks.
- * Does not read property or environment values.
- * Identifiers are copied without redaction and must not contain secrets, including property-derived secrets.
+ * Reads values only for properties with sensitive-looking keys to refuse identifiers that contain those values.
+ * Sensitive values are never stored or included in diagnostics; callers must still keep secrets out of identifiers.
  *
  * @param schemaVersion version of the JSON layout, independent of the Spring Boot version
- * @param beans bean name to exposed type name; aliases map to {@code alias:<definition name>}
+ * @param beans bean name to exposed type name; aliases map to {@code alias:<bean name>}
  * @param conditions configuration class or bean method to condition type to matched
  * @param checks explicitly supplied check name to boolean result; omitted from JSON when empty
  */
@@ -56,6 +60,18 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 
 	private static final Pattern GENERATED_SUFFIX = Pattern
 		.compile("\\$\\$(?:SpringCGLIB\\$\\$|EnhancerBy(?:Spring)?CGLIB\\$\\$|Lambda(?:\\$|/)).*");
+	private static final java.util.Set<String> INTERNAL_SINGLETONS = java.util.Set.of(
+		ConfigurableApplicationContext.ENVIRONMENT_BEAN_NAME,
+		ConfigurableApplicationContext.SYSTEM_PROPERTIES_BEAN_NAME,
+		ConfigurableApplicationContext.SYSTEM_ENVIRONMENT_BEAN_NAME,
+		ConfigurableApplicationContext.APPLICATION_STARTUP_BEAN_NAME,
+		AbstractApplicationContext.MESSAGE_SOURCE_BEAN_NAME,
+		AbstractApplicationContext.APPLICATION_EVENT_MULTICASTER_BEAN_NAME,
+		AbstractApplicationContext.LIFECYCLE_PROCESSOR_BEAN_NAME,
+		"springBootBanner",
+		"autoConfigurationReport",
+		"org.springframework.boot.autoconfigure.AutoConfigurationPackages",
+		"org.springframework.context.annotation.ConfigurationClassPostProcessor.importRegistry");
 
 	/** Reads the context without instantiating any bean. */
 	public static ContextSnapshot of(ConfigurableApplicationContext context) {
@@ -66,14 +82,32 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 	public static ContextSnapshot of(ConfigurableApplicationContext context, Map<String, Boolean> checks) {
 		Objects.requireNonNull(checks, "checks");
 		ConfigurableListableBeanFactory factory = context.getBeanFactory();
-		// shortcut: manually registered singletons (no bean definition) are not listed
-		// FINDING: Filtering can hide drift; use independent stable contexts (README Known limitations).
+		List<SensitiveProperty> sensitiveProperties = sensitiveProperties(context.getEnvironment());
 		Map<String, String> beans = new TreeMap<>();
 		for (String name : factory.getBeanDefinitionNames()) {
+			refuseSensitiveIdentifier("bean", name, sensitiveProperties);
 			BeanDefinition definition = factory.getMergedBeanDefinition(name);
 			if (!definition.isAbstract()) {
 				beans.put(name, typeName(factory, name));
 				for (String alias : factory.getAliases(name)) {
+					refuseSensitiveIdentifier("alias", alias, sensitiveProperties);
+					if (factory.containsBeanDefinition(alias)) {
+						throw new IllegalStateException("Incomplete alias analysis: alias shadows definition " + DiagnosticText.of(alias));
+					}
+					beans.put(alias, "alias:" + name);
+				}
+			}
+		}
+		for (String name : factory.getSingletonNames()) {
+			if (factory.containsBeanDefinition(name) || INTERNAL_SINGLETONS.contains(name)) {
+				continue;
+			}
+			refuseSensitiveIdentifier("bean", name, sensitiveProperties);
+			Object singletonBean = factory.getSingleton(name);
+			if (singletonBean != null) {
+				beans.put(name, exposedTypeName(singletonBean.getClass()));
+				for (String alias : factory.getAliases(name)) {
+					refuseSensitiveIdentifier("alias", alias, sensitiveProperties);
 					if (factory.containsBeanDefinition(alias)) {
 						throw new IllegalStateException("Incomplete alias analysis: alias shadows definition " + DiagnosticText.of(alias));
 					}
@@ -87,21 +121,67 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 		// shortcut: parent-context reports are ignored, snapshot each context separately
 		if (singleton instanceof ConditionEvaluationReport report) {
 			report.getConditionAndOutcomesBySource().forEach((source, outcomes) -> {
+				String stableSource = stable(source);
+				refuseSensitiveIdentifier("condition source", stableSource, sensitiveProperties);
 				Map<String, Boolean> byType = new TreeMap<>();
-				if (conditions.putIfAbsent(stable(source), byType) != null) {
-					throw new IllegalStateException("Incomplete condition analysis: colliding source " + DiagnosticText.of(stable(source)));
+				if (conditions.putIfAbsent(stableSource, byType) != null) {
+					throw new IllegalStateException("Incomplete condition analysis: colliding source " + DiagnosticText.of(stableSource));
 				}
 				// only booleans: outcome messages can echo property values
 				outcomes.forEach((entry) -> {
 					String condition = conditionName(entry.getCondition());
 					if (byType.putIfAbsent(condition, entry.getOutcome().isMatch()) != null) {
 						throw new IllegalStateException("Incomplete condition analysis: colliding condition "
-							+ DiagnosticText.of(condition) + " at " + DiagnosticText.of(stable(source)));
+							+ DiagnosticText.of(condition) + " at " + DiagnosticText.of(stableSource));
 					}
 				});
 			});
 		}
+		checks.keySet().forEach((name) -> refuseSensitiveIdentifier("check", name, sensitiveProperties));
 		return new ContextSnapshot(checks.isEmpty() ? SCHEMA_VERSION : CHECKS_SCHEMA_VERSION, beans, conditions, checks);
+	}
+
+	private record SensitiveProperty(String key, String value) {
+	}
+
+	private static List<SensitiveProperty> sensitiveProperties(ConfigurableEnvironment environment) {
+		List<SensitiveProperty> properties = new ArrayList<>();
+		for (var source : environment.getPropertySources()) {
+			if (source instanceof EnumerablePropertySource<?> enumerable) {
+				String[] keys;
+				try {
+					keys = enumerable.getPropertyNames();
+				}
+				catch (RuntimeException ex) {
+					continue;
+				}
+				for (String key : keys) {
+					if (sensitiveKey(key)) {
+						String value = environment.getProperty(key);
+						if (value != null && !value.isBlank() && value.length() >= 4) {
+							properties.add(new SensitiveProperty(key, value));
+						}
+					}
+				}
+			}
+		}
+		return properties;
+	}
+
+	private static boolean sensitiveKey(String key) {
+		String lower = key.toLowerCase(Locale.ROOT);
+		return List.of("password", "passwd", "secret", "token", "credential", "apikey", "api-key", "api_key",
+				"private-key", "privatekey", "access-key", "accesskey").stream().anyMatch(lower::contains)
+				|| lower.endsWith(".key") || lower.endsWith("-key") || lower.endsWith("_key");
+	}
+
+	private static void refuseSensitiveIdentifier(String kind, String identifier, List<SensitiveProperty> properties) {
+		for (SensitiveProperty property : properties) {
+			if (identifier.contains(property.value())) {
+				throw new IllegalStateException("Sensitive property '" + property.key()
+						+ "' value appears in " + kind + " identifier; refusing snapshot");
+			}
+		}
 	}
 
 	// Lambda class names carry runtime addresses; keep their owner identity and reject collisions.
@@ -110,6 +190,13 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 		if (!type.isSynthetic() && GENERATED_SUFFIX.matcher(type.getName()).find()) {
 			type = ClassUtils.getUserClass(type);
 		}
+		if (Proxy.isProxyClass(type)) {
+			return "proxy" + Arrays.stream(type.getInterfaces()).map(Class::getName).sorted().toList();
+		}
+		return stable(type.getName());
+	}
+
+	private static String exposedTypeName(Class<?> type) {
 		if (Proxy.isProxyClass(type)) {
 			return "proxy" + Arrays.stream(type.getInterfaces()).map(Class::getName).sorted().toList();
 		}

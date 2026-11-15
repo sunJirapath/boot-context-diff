@@ -28,6 +28,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionEvaluationRepor
 import org.springframework.boot.autoconfigure.condition.ConditionOutcome;
 import org.springframework.context.annotation.Condition;
 import org.springframework.context.support.GenericApplicationContext;
+import org.springframework.core.env.MapPropertySource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -432,29 +433,37 @@ class ContextContractSecurityTests {
 
 	@Test
 	void identifierSecretLeakAttackMustNotCommitCredentials() throws Exception {
-		// FINDING: Arbitrary bean/alias/source/check identifiers are persisted verbatim; safe redaction needs a contract decision.
-		// Kills retaining secret-bearing identifiers in any of the four persisted identity locations.
 		String secret = "regression-secret-token-91384";
 		Path baseline = dir.resolve("secret.json");
 		try (var context = context()) {
+			context.getEnvironment().getPropertySources().addFirst(
+					new MapPropertySource("security-test", Map.of("app.api-token", secret)));
 			context.registerBeanDefinition("bean-" + secret, new RootBeanDefinition(String.class));
 			context.registerAlias("bean-" + secret, "alias-" + secret);
 			Condition condition = (ctx, metadata) -> true;
 			ConditionEvaluationReport.get(context.getBeanFactory()).recordConditionEvaluation("source-" + secret,
 					condition, ConditionOutcome.match());
-			ContextContract.write(context, baseline, Map.of("check-" + secret, true));
-			assertThat(Files.readString(baseline)).doesNotContain(secret);
+			assertThatThrownBy(() -> ContextContract.write(context, baseline, Map.of("check-" + secret, true)))
+				.isInstanceOf(IllegalStateException.class)
+				.satisfies((failure) -> {
+					for (Throwable cause = (Throwable) failure; cause != null; cause = cause.getCause()) {
+						if (cause.getMessage() != null) {
+							assertThat(cause.getMessage()).doesNotContain(secret);
+						}
+					}
+					assertThat(failure).hasMessageContaining("bean").hasMessageContaining("app.api-token");
+				});
+			assertThat(baseline).doesNotExist();
 		}
 	}
 
 	@Test
 	void manualSingletonSecurityDriftAttackMustNotPassVerification() {
-		// FINDING: Manually registered singleton security components are excluded from structural snapshots.
-		// Kills ignoring an added singleton when no caller-supplied behavioral check covers it.
 		Path baseline = dir.resolve("singleton.json");
 		try (var context = context()) {
 			ContextContract.write(context, baseline);
 			context.getBeanFactory().registerSingleton("securityOverride", new Object());
+			assertThat(ContextSnapshot.of(context).beans()).containsEntry("securityOverride", Object.class.getName());
 			assertThatThrownBy(() -> ContextContract.verify(context, baseline)).isExactlyInstanceOf(AssertionError.class);
 		}
 	}

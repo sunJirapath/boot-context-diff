@@ -75,7 +75,7 @@ The contract API is two static methods, each with an optional `Map<String, Boole
 | Bean removed | `REMOVED BEAN      name (was Type)` |
 | Bean added | `ADDED BEAN        name (Type)` |
 | Bean type changed | `BEAN TYPE CHANGED name: A -> B` |
-| Alias added, removed or retargeted | Same bean diff lines, with `alias:<definition name>` as the value |
+| Alias added, removed or retargeted | Same bean diff lines, with `alias:<bean name>` as the value |
 | Auto-configuration condition outcome changed | `CONDITION CHANGED source [Condition]: matched -> not matched` |
 | Explicit boolean check changed, added or removed | `CHECK CHANGED     name: true -> false` |
 
@@ -95,11 +95,12 @@ check name and boolean result are stored. Omitted checks fail verification; chec
 
 ### How it works
 
-- **Beans**: every non-abstract bean definition, by name, with its exposed type. Types come from the merged bean
-  definition and Spring's non-initializing type prediction for factory methods. `FactoryBean` product types come only
+- **Beans**: every non-abstract bean definition, by name, with its exposed type, plus manually registered singletons
+  without definitions, using their existing instance type. Definition types come from the merged bean definition and
+  Spring's non-initializing type prediction for factory methods. `FactoryBean` product types come only
   from declared `factoryBeanObjectType` metadata or generic signatures; runtime `getObjectType()` is never consulted.
-  Aliases of these definitions are stored in the same map as `"aliasName" : "alias:definitionName"`, including chained
-  aliases resolved to their definition. Retargeting an alias is detected even when both targets have the same type.
+  Aliases of included definitions and manual singletons are stored in the same map as `"aliasName" : "alias:beanName"`,
+  including chained aliases resolved to their target. Retargeting an alias is detected even when both targets have the same type.
   No bean is instantiated. Recognized CGLIB suffixes are stripped, JDK proxies are shown as
   `proxy[interfaces]`, and a type that cannot be resolved or loaded is recorded as `?` for inspection.
   Verification rejects `?` in a baseline with `AssertionError`, and in the live snapshot with
@@ -151,12 +152,11 @@ regenerate them with this implementation before adoption.
 
 ### What it does not do
 
-- It does not instantiate beans (types come from bean definitions), directly read property/environment values, or
-  serialize condition messages. Condition outcomes are recorded as `true`/`false` only.
-  **Identifiers are not secret-redacted:** bean names, aliases, type names, condition sources/types and
-  check labels can contain secrets or property-derived values. Sensitive identifiers can appear in both baseline JSON
-  and failure messages. Callers must use non-sensitive identifiers and review generated files before committing or
-  uploading them; this is not a secret-sanitization boundary.
+- It does not instantiate beans (types come from bean definitions or existing singleton instances), or serialize condition messages. Condition outcomes
+  are recorded as `true`/`false` only. Snapshot capture checks resolved values of properties whose keys look sensitive
+  only to detect identifier leaks; if a bean name, alias, condition source or check name contains one, capture and writes
+  fail with `IllegalStateException`. Sensitive values are never written or logged.
+  Callers must still avoid secrets in identifiers; this check is not a general secret-sanitization boundary.
 - It does not inspect security filter chains, HTTP endpoints or message converters automatically. Use explicit boolean
   checks for selected runtime behavior; these only cover the behavior the caller actually probes.
 - It does not update baselines automatically, and a failed `verify` never touches the baseline file.
@@ -358,9 +358,10 @@ the consuming application. A selected configuration set is not evidence of real 
 - Bean types are declared types, not guaranteed runtime classes. FactoryBeans declared as `FactoryBean<Object>` record
   `java.lang.Object` even if runtime `getObjectType()` is more specific. Raw or unresolved products record `?`; writes
   may record it for inspection, but verification fails closed until declared type metadata is supplied and regenerated.
-- Manually registered singletons (no bean definition) are not listed, and parent-context beans/reports are ignored: snapshot each context separately.
-- Aliases are captured only for included local, non-abstract definitions; aliases of manual singletons, abstract
-  definitions and parent beans are outside this contract. Alias diffs use the existing bean diff labels. An alias
+- Manually registered singletons (no bean definition) and their aliases are listed, except known Spring and Spring Boot
+  infrastructure singletons. Parent-context beans/reports are ignored: snapshot each context separately.
+- Aliases are captured only for included local, non-abstract definitions and included manual singletons; aliases of
+  abstract definitions and parent beans are outside this contract. Alias diffs use the existing bean diff labels. An alias
   shadowing another definition fails capture with `IllegalStateException` (incomplete alias analysis).
 - Condition outcomes use full class names per source. Repeated evaluations of one type and collisions after generated
   name normalization are unsupported and fail closed with incomplete analysis; adding boolean checks does not bypass
@@ -388,8 +389,8 @@ and then fails if the committed baseline files changed
 **Review artifacts:** the library puts a bounded diff in the assertion message; it does not emit a dedicated diff
 file. CI uploads Maven Surefire XML/text reports and Gradle JUnit XML/HTML reports with `if: always()`, including after
 a verification failure. Download the OS-specific `test-reports-*` artifact to review the failure. Consumer CI must retain
-its own test reports/logs too; console-log retention alone is not guaranteed by this library. Reports contain unredacted
-identifiers, just like baselines; review their sensitivity before uploading.
+its own test reports/logs too; console-log retention alone is not guaranteed by this library. Reports may contain
+identifiers that do not contain values from sensitive-keyed properties; callers must still avoid secrets in identifiers.
 
 Test counts and coverage must come from the current run's reports; annotation counts are not executed case counts.
 JaCoCo generates a report during `verify`; no coverage threshold is enforced. PIT is optional (`-Pmutation`);
@@ -431,8 +432,7 @@ unrelated filesystem writes and network attempts by plugins require external san
 runtime compatibility test. The optional microservices fleet needs a service-specific adapter and is not included.
 The manifest supplies commit provenance; the script does not invoke Git or independently verify checkout SHAs.
 
-Security probes include active `// FINDING:` tests for identifier-secret leakage and ignored manual-singleton drift.
-They intentionally fail until those contract-level decisions are resolved; no tests are disabled. See
+Security probes cover identifier-secret refusal and manual-singleton drift detection; no tests are disabled. See
 [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) for the threat model and review limits.
 
 Build notes:
@@ -518,10 +518,10 @@ auto-configuration เปลี่ยนโดยไม่มีอะไรล�
 
 - type ของ bean คือ type จาก bean definition ไม่ใช่ runtime class; product ของ FactoryBean ใช้ metadata หรือ generic signature เท่านั้น ไม่เรียก runtime `getObjectType()`
 - ถ้า resolve ไม่ได้หรือโหลดคลาสไม่ได้จะบันทึกเป็น `?` เพื่อการตรวจสอบ แต่ `verify` จะ fail closed ด้วย `AssertionError` หาก baseline มี `?` และ `IllegalStateException` หาก live context มี `?`
-- singleton ที่ลงทะเบียนด้วยมือ (ไม่มี bean definition) ไม่ถูกแสดง และ context แม่ (parent) ถูกละเว้น ให้ snapshot แยกทีละ context
-- alias ของ local non-abstract bean definition ถูกบันทึกใน beans เป็น `alias:<definition name>` และตรวจจับการเพิ่ม ลบ หรือเปลี่ยน target ได้; alias ของ parent, abstract definition และ manual singleton ไม่อยู่ใน contract
+- Manual singletons without definitions and their aliases are included, except named Spring/Boot infrastructure singletons; parent contexts remain separate.
+- Aliases of included local definitions and manual singletons are included; parent and abstract-definition aliases are outside the contract.
 - ผลของ condition ใช้ชื่อคลาสเต็ม (nested class ใช้ `$`) ต่อ source จึงแยกคลาสที่ชื่อสั้นเหมือนกันได้ หาก key ซ้ำ หรือ source normalize แล้วซ้ำ จะ fail closed ด้วย `IllegalStateException` (incomplete analysis) ไม่รวมผลด้วย AND อีกต่อไป
-- alias ที่ shadow bean definition อื่นจะ fail capture ด้วย `IllegalStateException` (incomplete alias analysis)
+- An alias that shadows another bean definition fails capture with `IllegalStateException` (incomplete alias analysis).
 - baseline เก่าอาจขาด alias ใช้ runtime product type หรือสูญเสีย condition identity จากการรวมผล ต้องตรวจ diff และสร้างใหม่อย่างตั้งใจด้วย implementation นี้
 - ไม่มี ignore/filter API ให้ใช้ contract context ที่คงที่และ baseline แยกต่อ module/slice/mock configuration
 - unknown top-level JSON fields และ null entries จะถูกปฏิเสธด้วย `AssertionError`

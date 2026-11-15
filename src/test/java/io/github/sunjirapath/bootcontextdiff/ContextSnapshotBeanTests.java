@@ -254,15 +254,17 @@ class ContextSnapshotBeanTests {
 	}
 
 	@Test
-	void localAliasesAreIncludedButParentDefinitionsAndManualSingletonsAreExcluded() {
+	void localAliasesAndManualSingletonsAreIncludedButParentDefinitionsAreExcluded() {
 		try (GenericApplicationContext parent = emptyContext(); GenericApplicationContext child = new GenericApplicationContext(parent)) {
 			parent.registerBeanDefinition("parentOnly", new RootBeanDefinition(String.class));
 			child.refresh();
 			child.registerBeanDefinition("local", new RootBeanDefinition(Integer.class));
 			child.registerAlias("local", "alias");
 			child.getBeanFactory().registerSingleton("manual", "secret");
+			child.registerAlias("manual", "manualAlias");
 			assertThat(ContextSnapshot.of(child).beans())
-				.isEqualTo(Map.of("local", "java.lang.Integer", "alias", "alias:local"));
+				.isEqualTo(Map.of("local", "java.lang.Integer", "alias", "alias:local",
+						"manual", "java.lang.String", "manualAlias", "alias:manual"));
 		}
 	}
 
