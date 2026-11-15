@@ -71,7 +71,15 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 		"springBootBanner",
 		"autoConfigurationReport",
 		"org.springframework.boot.autoconfigure.AutoConfigurationPackages",
-		"org.springframework.context.annotation.ConfigurationClassPostProcessor.importRegistry");
+		"org.springframework.context.annotation.ConfigurationClassPostProcessor.importRegistry",
+		// Registered by SpringApplication and the Boot test support in a @SpringBootTest context.
+		"springApplicationArguments",
+		"springBootLoggerGroups",
+		"springBootLoggingLifecycle",
+		"springBootLoggingSystem",
+		"org.springframework.boot.context.ContextIdApplicationContextInitializer$ContextId",
+		"org.springframework.boot.test.context.PropertyMappingContextCustomizer$PropertyMappingCheckBeanPostProcessor",
+		"org.springframework.boot.test.context.filter.TestTypeExcludeFilter");
 
 	/** Reads the context without instantiating any bean. */
 	public static ContextSnapshot of(ConfigurableApplicationContext context) {
