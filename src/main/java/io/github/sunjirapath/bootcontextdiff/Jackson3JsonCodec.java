@@ -36,7 +36,11 @@ final class Jackson3JsonCodec implements JsonCodec {
 	@Override
 	public ContextSnapshot decode(String json) {
 		try {
-			return MAPPER.readValue(json, ContextSnapshot.class);
+			var tree = MAPPER.readTree(json);
+			if (tree != null && tree.has("checks") && tree.get("checks").isNull()) {
+				throw new IllegalArgumentException("Baseline contains null checks");
+			}
+			return MAPPER.treeToValue(tree, ContextSnapshot.class);
 		}
 		catch (JacksonException ex) {
 			throw new IllegalArgumentException(ex.getOriginalMessage(), ex);

@@ -200,7 +200,7 @@ class ContextSnapshotBeanTests {
 			ContextContract.write(context, baseline);
 			byte[] bytes = Files.readAllBytes(baseline);
 			assertThatThrownBy(() -> ContextContract.verify(context, baseline))
-				.isInstanceOf(IllegalStateException.class).hasMessageContaining("Incomplete bean type analysis");
+				.isExactlyInstanceOf(AssertionError.class).hasMessageContaining("Incomplete bean type analysis");
 			assertThat(Files.readAllBytes(baseline)).isEqualTo(bytes);
 		}
 	}
@@ -215,7 +215,7 @@ class ContextSnapshotBeanTests {
 			known.setAttribute(FactoryBean.OBJECT_TYPE_ATTRIBUTE, String.class);
 			context.registerBeanDefinition("factory", known);
 			assertThatThrownBy(() -> ContextContract.verify(context, baseline))
-				.isInstanceOf(IllegalStateException.class).hasMessageContaining("Incomplete bean type analysis");
+				.isExactlyInstanceOf(AssertionError.class).hasMessageContaining("Incomplete bean type analysis");
 			ContextContract.write(context, baseline);
 			context.registerBeanDefinition("factory", new RootBeanDefinition(UnknownFactory.class));
 			assertThatThrownBy(() -> ContextContract.verify(context, baseline))
@@ -254,15 +254,17 @@ class ContextSnapshotBeanTests {
 	}
 
 	@Test
-	void localAliasesAreIncludedButParentDefinitionsAndManualSingletonsAreExcluded() {
+	void localAliasesAndManualSingletonsAreIncludedButParentDefinitionsAreExcluded() {
 		try (GenericApplicationContext parent = emptyContext(); GenericApplicationContext child = new GenericApplicationContext(parent)) {
 			parent.registerBeanDefinition("parentOnly", new RootBeanDefinition(String.class));
 			child.refresh();
 			child.registerBeanDefinition("local", new RootBeanDefinition(Integer.class));
 			child.registerAlias("local", "alias");
 			child.getBeanFactory().registerSingleton("manual", "secret");
+			child.registerAlias("manual", "manualAlias");
 			assertThat(ContextSnapshot.of(child).beans())
-				.isEqualTo(Map.of("local", "java.lang.Integer", "alias", "alias:local"));
+				.isEqualTo(Map.of("local", "java.lang.Integer", "alias", "alias:local",
+						"manual", "java.lang.String", "manualAlias", "alias:manual"));
 		}
 	}
 

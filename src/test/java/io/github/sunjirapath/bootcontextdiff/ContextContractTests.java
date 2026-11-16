@@ -273,7 +273,7 @@ class ContextContractTests {
 			// what PowerShell 5 `>` produces: UTF-16LE with a BOM
 			Files.writeString(baseline, "﻿" + Files.readString(baseline), StandardCharsets.UTF_16LE);
 			assertThatThrownBy(() -> ContextContract.verify(ctx, baseline))
-				.isInstanceOf(IllegalStateException.class)
+				.isExactlyInstanceOf(AssertionError.class)
 				.hasMessageContaining("UTF-16");
 		});
 	}

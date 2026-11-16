@@ -85,10 +85,10 @@ class InstallationDocumentationTests {
 	@Test
 	void privacyDocumentationWarnsAboutSensitiveIdentifiers() throws Exception {
 		assertThat(Files.readString(Path.of("README.md")))
-			.contains("Identifiers are not secret-redacted", "property-derived values",
-					"Sensitive identifiers can appear in both baseline JSON", "and failure messages",
-					"Callers must use non-sensitive identifiers")
-			.doesNotContain("never serializes property values");
+			.contains("checks resolved values of properties whose keys look sensitive",
+					"only to detect identifier leaks", "Sensitive values are never written or logged",
+					"Callers must still avoid secrets in identifiers")
+			.doesNotContain("Identifiers are not secret-redacted", "never serializes property values");
 	}
 
 	@Test
@@ -128,7 +128,8 @@ class InstallationDocumentationTests {
 				"examples/gradle-groovy/build/reports/tests/test/**", "examples/gradle-kotlin/build/test-results/test/**",
 				"examples/gradle-kotlin/build/reports/tests/test/**");
 		assertThat(Files.readString(Path.of("README.md")))
-			.contains("does not emit a dedicated diff", "Consumer CI must retain", "unredacted");
+			.contains("does not emit a dedicated diff", "Consumer CI must retain",
+					"Reports may contain", "sensitive-keyed properties");
 	}
 
 	@Test
