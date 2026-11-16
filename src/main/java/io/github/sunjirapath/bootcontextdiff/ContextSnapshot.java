@@ -40,6 +40,14 @@ public record ContextSnapshot(int schemaVersion, Map<String, String> beans,
 		Map<String, Boolean> checks) {
 
 	public ContextSnapshot {
+		// Canonical key order, so equivalent snapshots serialize identically whatever order the caller supplied.
+		beans = beans == null ? null : Collections.unmodifiableMap(new TreeMap<>(beans));
+		if (conditions != null) {
+			Map<String, Map<String, Boolean>> sorted = new TreeMap<>();
+			conditions.forEach((source, byType) ->
+				sorted.put(source, byType == null ? null : Collections.unmodifiableMap(new TreeMap<>(byType))));
+			conditions = Collections.unmodifiableMap(sorted);
+		}
 		checks = checks == null ? Map.of() : Collections.unmodifiableMap(new TreeMap<>(checks));
 		checks.forEach((name, result) -> {
 			if (name.isBlank() || result == null) {
