@@ -90,6 +90,7 @@
             <testExclude>**/InstallationDocumentationTests.java</testExclude>
             <testExclude>**/JsonCodecTests.java</testExclude>
             <testExclude>**/JsonCodecSecurityTests.java</testExclude>
+            <testExclude>**/JsonCodecUnicodeParityTest.java</testExclude>
           </testExcludes>
         </configuration>
       </plugin>

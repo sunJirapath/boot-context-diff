@@ -36,7 +36,8 @@ class ContextSnapshotDeterminismTest {
 		ContextSnapshot second = new ContextSnapshot(1, beansReverse, conditionsReverse);
 
 		// FINDING: ContextSnapshot preserves caller map iteration order, so equivalent snapshots serialize differently.
-		assertThat(new Jackson3JsonCodec().write(first)).isEqualTo(new Jackson3JsonCodec().write(second));
+		JsonCodec codec = JsonCodec.select(getClass().getClassLoader());
+		assertThat(codec.write(first)).isEqualTo(codec.write(second));
 	}
 
 	@Test
@@ -47,10 +48,11 @@ class ContextSnapshotDeterminismTest {
 		try {
 			Locale.setDefault(Locale.US);
 			TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
-			byte[] expected = new Jackson3JsonCodec().write(snapshot).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+			JsonCodec codec = JsonCodec.select(getClass().getClassLoader());
+			byte[] expected = codec.write(snapshot).getBytes(java.nio.charset.StandardCharsets.UTF_8);
 			Locale.setDefault(Locale.forLanguageTag("th-TH"));
 			TimeZone.setDefault(TimeZone.getTimeZone("Pacific/Auckland"));
-			assertThat(new Jackson3JsonCodec().write(snapshot).getBytes(java.nio.charset.StandardCharsets.UTF_8))
+			assertThat(codec.write(snapshot).getBytes(java.nio.charset.StandardCharsets.UTF_8))
 				.isEqualTo(expected);
 		}
 		finally {
