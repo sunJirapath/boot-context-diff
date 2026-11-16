@@ -31,8 +31,9 @@ class ContextBaselinePlatformTest {
 
 	@Test
 	void baselinePathLongerThanTwoHundredCharactersCanBeWrittenAndVerified() throws Exception {
-		String segment = "p".repeat(70);
-		Path baseline = dir.resolve(segment).resolve(segment).resolve("baseline.json");
+		// Pad relative to the temp dir so the full path is ~210 chars on every OS (Linux temp dirs are short).
+		String segment = "p".repeat(Math.max(1, 210 - dir.toString().length() - "/baseline.json".length() - 1));
+		Path baseline = dir.resolve(segment).resolve("baseline.json");
 		try (var context = new GenericApplicationContext()) {
 			ContextContract.write(context, baseline);
 			ContextContract.verify(context, baseline);
